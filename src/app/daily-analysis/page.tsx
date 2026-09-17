@@ -60,16 +60,45 @@ function DailyAnalysisContent() {
   // Sync if URL query parameter changes externally
   useEffect(() => {
     const urlDate = searchParams.get("date");
-    if (urlDate && /^\d{4}-\d{2}-\d{2}$/.test(urlDate) && urlDate !== selectedDate) {
-      setSelectedDate(urlDate);
+    if (urlDate && /^\d{4}-\d{2}-\d{2}$/.test(urlDate)) {
+      if (urlDate !== selectedDate) {
+        setSelectedDate(urlDate);
+        setSlots([]);
+        setKpis(null);
+        setExists(false);
+      }
+      if (typeof window !== "undefined") {
+        localStorage.setItem("md_carton_selected_date", urlDate);
+        window.dispatchEvent(new CustomEvent("md_carton_date_change"));
+      }
+    } else {
+      // If no query parameter in URL, restore from localStorage if exists
+      if (typeof window !== "undefined") {
+        const stored = localStorage.getItem("md_carton_selected_date");
+        if (stored && /^\d{4}-\d{2}-\d{2}$/.test(stored)) {
+          if (stored !== selectedDate) {
+            setSelectedDate(stored);
+            setSlots([]);
+            setKpis(null);
+            setExists(false);
+          }
+          router.replace(`?date=${stored}`, { scroll: false });
+          return;
+        }
+      }
+      // If no stored date, default to today
+      const todayStr = format(new Date(), "yyyy-MM-dd");
+      setSelectedDate(todayStr);
       setSlots([]);
       setKpis(null);
       setExists(false);
       if (typeof window !== "undefined") {
-        localStorage.setItem("md_carton_selected_date", urlDate);
+        localStorage.setItem("md_carton_selected_date", todayStr);
+        window.dispatchEvent(new CustomEvent("md_carton_date_change"));
       }
+      router.replace(`?date=${todayStr}`, { scroll: false });
     }
-  }, [searchParams]);
+  }, [searchParams, router]);
 
   const handleDateChange = (newDate: string) => {
     setSelectedDate(newDate);
@@ -78,6 +107,7 @@ function DailyAnalysisContent() {
     setExists(false);
     if (typeof window !== "undefined") {
       localStorage.setItem("md_carton_selected_date", newDate);
+      window.dispatchEvent(new CustomEvent("md_carton_date_change"));
     }
     router.replace(`?date=${newDate}`, { scroll: false });
   };

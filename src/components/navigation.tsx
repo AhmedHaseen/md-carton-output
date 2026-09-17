@@ -104,9 +104,11 @@ export default function Navigation() {
     updateActiveDate();
     window.addEventListener("storage", updateActiveDate);
     window.addEventListener("focus", updateActiveDate);
+    window.addEventListener("md_carton_date_change", updateActiveDate);
     return () => {
       window.removeEventListener("storage", updateActiveDate);
       window.removeEventListener("focus", updateActiveDate);
+      window.removeEventListener("md_carton_date_change", updateActiveDate);
     };
   }, [pathname]);
 
@@ -259,9 +261,11 @@ export default function Navigation() {
             const Icon = item.icon;
             const targetHref =
               item.href === "/"
-                ? "/"
+                ? activeDate
+                  ? `/?date=${activeDate}`
+                  : "/"
                 : activeDate && (item.href === "/daily-analysis" || item.href === "/reports" || item.href === "/targets")
-                ? `${item.href}/?date=${activeDate}`
+                ? `${item.href}?date=${activeDate}`
                 : item.href;
 
             return (

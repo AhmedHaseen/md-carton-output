@@ -59,24 +59,50 @@ function HomeContent() {
     if (urlDate && /^\d{4}-\d{2}-\d{2}$/.test(urlDate)) {
       return urlDate;
     }
+    if (typeof window !== "undefined") {
+      const stored = localStorage.getItem("md_carton_selected_date");
+      if (stored && /^\d{4}-\d{2}-\d{2}$/.test(stored)) {
+        return stored;
+      }
+    }
     return format(new Date(), "yyyy-MM-dd");
   });
 
   // Sync if URL query parameter changes externally (e.g. sidebar navigation or browser navigation)
   useEffect(() => {
     const urlDate = searchParams.get("date");
-    const targetDate =
-      urlDate && /^\d{4}-\d{2}-\d{2}$/.test(urlDate)
-        ? urlDate
-        : format(new Date(), "yyyy-MM-dd");
-
-    setSelectedDate(targetDate);
-    setWorkDay(null);
-    setExists(false);
-    if (typeof window !== "undefined") {
-      localStorage.setItem("md_carton_selected_date", targetDate);
+    if (urlDate && /^\d{4}-\d{2}-\d{2}$/.test(urlDate)) {
+      setSelectedDate(urlDate);
+      setWorkDay(null);
+      setExists(false);
+      if (typeof window !== "undefined") {
+        localStorage.setItem("md_carton_selected_date", urlDate);
+        window.dispatchEvent(new CustomEvent("md_carton_date_change"));
+      }
+    } else {
+      // Bare "/" without date query
+      if (typeof window !== "undefined") {
+        const stored = localStorage.getItem("md_carton_selected_date");
+        if (stored && /^\d{4}-\d{2}-\d{2}$/.test(stored)) {
+          setSelectedDate(stored);
+          setWorkDay(null);
+          setExists(false);
+          router.replace(`?date=${stored}`, { scroll: false });
+          return;
+        }
+      }
+      // Fresh login (no URL date and no stored date): use today
+      const todayStr = format(new Date(), "yyyy-MM-dd");
+      setSelectedDate(todayStr);
+      setWorkDay(null);
+      setExists(false);
+      if (typeof window !== "undefined") {
+        localStorage.setItem("md_carton_selected_date", todayStr);
+        window.dispatchEvent(new CustomEvent("md_carton_date_change"));
+      }
+      router.replace(`?date=${todayStr}`, { scroll: false });
     }
-  }, [searchParams]);
+  }, [searchParams, router]);
 
   const handleDateChange = (newDate: string) => {
     setSelectedDate(newDate);
@@ -84,6 +110,7 @@ function HomeContent() {
     setExists(false);
     if (typeof window !== "undefined") {
       localStorage.setItem("md_carton_selected_date", newDate);
+      window.dispatchEvent(new CustomEvent("md_carton_date_change"));
     }
     router.replace(`?date=${newDate}`, { scroll: false });
   };

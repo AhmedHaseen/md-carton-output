@@ -60,6 +60,7 @@ function TargetSettingsContent() {
       setSelectedDate(urlDate);
       if (typeof window !== "undefined") {
         localStorage.setItem("md_carton_selected_date", urlDate);
+        window.dispatchEvent(new CustomEvent("md_carton_date_change"));
       }
     }
   }, [searchParams, selectedDate]);
@@ -68,6 +69,7 @@ function TargetSettingsContent() {
     setSelectedDate(newDate);
     if (typeof window !== "undefined") {
       localStorage.setItem("md_carton_selected_date", newDate);
+      window.dispatchEvent(new CustomEvent("md_carton_date_change"));
     }
     window.history.replaceState(null, "", `?date=${newDate}`);
   };
