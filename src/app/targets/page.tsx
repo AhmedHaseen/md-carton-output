@@ -6,7 +6,7 @@ import { format } from "date-fns";
 import toast from "react-hot-toast";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { Target, RotateCcw, History, AlertTriangle, Clock, Edit2, ShieldAlert } from "lucide-react";
+import { Target, RotateCcw, History, AlertTriangle, Clock, Edit2, ShieldAlert, Sliders } from "lucide-react";
 import DatePicker from "@/components/date-picker";
 import { formatTimeRange } from "@/lib/calculations";
 
@@ -93,11 +93,20 @@ function TargetSettingsContent() {
   const [reason, setReason] = useState("");
   const [saving, setSaving] = useState(false);
 
+  // Target Override Badge display setting
+  const [showOverrideBadge, setShowOverrideBadge] = useState<boolean>(true);
+  const [updatingSetting, setUpdatingSetting] = useState<boolean>(false);
+
   // Fetch default slots
   useEffect(() => {
     fetch("/api/targets")
       .then((res) => res.json())
-      .then((data) => setDefaultSlots(data.timeSlots || []))
+      .then((data) => {
+        setDefaultSlots(data.timeSlots || []);
+        if (data?.settings && typeof data.settings.showOverrideBadge === "boolean") {
+          setShowOverrideBadge(data.settings.showOverrideBadge);
+        }
+      })
       .catch(() => toast.error("Failed to load time slots"));
   }, []);
 
@@ -107,6 +116,10 @@ function TargetSettingsContent() {
     try {
       const res = await fetch(`/api/targets?date=${date}`);
       const data = await res.json();
+
+      if (data?.settings && typeof data.settings.showOverrideBadge === "boolean") {
+        setShowOverrideBadge(data.settings.showOverrideBadge);
+      }
 
       if (data.error || !data.workDay) {
         setHasWorkDay(false);
@@ -121,6 +134,36 @@ function TargetSettingsContent() {
       setLoading(false);
     }
   }, []);
+
+  const handleToggleOverrideBadge = async (newValue: boolean) => {
+    setUpdatingSetting(true);
+    try {
+      const res = await fetch("/api/admin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "UPDATE_SETTING",
+          key: "SHOW_OVERRIDE_BADGE",
+          value: String(newValue),
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setShowOverrideBadge(newValue);
+        toast.success(
+          newValue
+            ? "Target Override badges are now visible in Daily Input"
+            : "Target Override badges are now hidden in Daily Input"
+        );
+      } else {
+        toast.error(data.error || "Failed to update setting");
+      }
+    } catch {
+      toast.error("Network error updating setting");
+    } finally {
+      setUpdatingSetting(false);
+    }
+  };
 
   useEffect(() => {
     fetchDateData(selectedDate);
@@ -196,6 +239,55 @@ function TargetSettingsContent() {
         <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
           View system baseline targets and adjust daily shift targets with audit reasons
         </p>
+      </div>
+
+      {/* Target Override Badge Display Setting Card */}
+      <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/90 shadow-xs mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-start gap-3">
+          <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0 mt-0.5">
+            <Sliders size={18} />
+          </div>
+          <div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-bold text-slate-800 text-sm sm:text-base">
+                Daily Input &quot;Override&quot; Badge Display
+              </span>
+              <span
+                className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                  showOverrideBadge
+                    ? "bg-emerald-100 text-emerald-800"
+                    : "bg-slate-100 text-slate-600"
+                }`}
+              >
+                {showOverrideBadge ? "Shown on Daily Input" : "Hidden on Daily Input"}
+              </span>
+            </div>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Admin option: Remove or show the amber &quot;Override&quot; tag on the Daily Input page when targets are customized.
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-3 self-end sm:self-center shrink-0">
+          <button
+            type="button"
+            onClick={() => handleToggleOverrideBadge(!showOverrideBadge)}
+            disabled={updatingSetting}
+            className={`relative inline-flex h-7 w-14 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+              showOverrideBadge ? "bg-emerald-600" : "bg-slate-300"
+            } ${updatingSetting ? "opacity-60 cursor-wait" : ""}`}
+            role="switch"
+            aria-checked={showOverrideBadge}
+          >
+            <span
+              className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+                showOverrideBadge ? "translate-x-7" : "translate-x-0"
+              }`}
+            />
+          </button>
+          <span className="text-xs font-bold text-slate-700 min-w-[50px]">
+            {updatingSetting ? "..." : showOverrideBadge ? "Visible" : "Hidden"}
+          </span>
+        </div>
       </div>
 
       {/* ─── Baseline Default Targets Table ───────────────────────────── */}

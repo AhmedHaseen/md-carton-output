@@ -23,6 +23,7 @@ import {
   ArrowLeftRight,
   Calendar,
   CheckCircle2,
+  Sliders,
 } from "lucide-react";
 
 interface AuditLog {
@@ -58,10 +59,14 @@ export default function AdminPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
 
-  const [activeTab, setActiveTab] = useState<"shifts" | "users" | "audit">("shifts");
+  const [activeTab, setActiveTab] = useState<"shifts" | "settings" | "users" | "audit">("shifts");
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(false);
+
+  // System Settings state
+  const [showOverrideBadge, setShowOverrideBadge] = useState<boolean>(true);
+  const [updatingSetting, setUpdatingSetting] = useState<boolean>(false);
 
   // Shift Rotation Settings state
   const [schedules, setSchedules] = useState<ShiftSchedule[]>([]);
@@ -102,11 +107,56 @@ export default function AdminPage() {
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
       const tab = params.get("tab");
-      if (tab === "users" || tab === "audit" || tab === "shifts") {
+      if (tab === "users" || tab === "audit" || tab === "shifts" || tab === "settings") {
         setActiveTab(tab);
       }
     }
   }, []);
+
+  const fetchSettings = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/admin?type=settings");
+      const data = await res.json();
+      if (data?.settings && typeof data.settings.showOverrideBadge === "boolean") {
+        setShowOverrideBadge(data.settings.showOverrideBadge);
+      }
+    } catch {
+      toast.error("Failed to load settings");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleToggleOverrideBadge = async (newValue: boolean) => {
+    setUpdatingSetting(true);
+    try {
+      const res = await fetch("/api/admin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "UPDATE_SETTING",
+          key: "SHOW_OVERRIDE_BADGE",
+          value: String(newValue),
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setShowOverrideBadge(newValue);
+        toast.success(
+          newValue
+            ? "Target Override badges are now visible in Daily Input"
+            : "Target Override badges are now hidden in Daily Input"
+        );
+      } else {
+        toast.error(data.error || "Failed to update setting");
+      }
+    } catch {
+      toast.error("Network error updating setting");
+    } finally {
+      setUpdatingSetting(false);
+    }
+  };
 
   const fetchShifts = async () => {
     setLoading(true);
@@ -150,6 +200,7 @@ export default function AdminPage() {
 
   useEffect(() => {
     if (activeTab === "shifts") fetchShifts();
+    else if (activeTab === "settings") fetchSettings();
     else if (activeTab === "audit") fetchAuditLogs();
     else fetchUsers();
   }, [activeTab]);
@@ -353,7 +404,7 @@ export default function AdminPage() {
       </div>
 
       {/* Tabs (Responsive segmented control) */}
-      <div className="w-full sm:w-fit grid grid-cols-3 gap-1 bg-slate-200/80 rounded-2xl p-1 mb-6">
+      <div className="w-full sm:w-fit grid grid-cols-2 sm:grid-cols-4 gap-1 bg-slate-200/80 rounded-2xl p-1 mb-6">
         <button
           onClick={() => setActiveTab("shifts")}
           className={`flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all min-h-[42px] cursor-pointer ${
@@ -363,7 +414,18 @@ export default function AdminPage() {
           }`}
         >
           <CalendarDays size={16} className="shrink-0" />
-          <span className="truncate">Shift Duty Settings</span>
+          <span className="truncate">Shift Duties</span>
+        </button>
+        <button
+          onClick={() => setActiveTab("settings")}
+          className={`flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all min-h-[42px] cursor-pointer ${
+            activeTab === "settings"
+              ? "bg-white text-slate-900 shadow-xs"
+              : "text-slate-600 hover:text-slate-900"
+          }`}
+        >
+          <Sliders size={16} className="shrink-0" />
+          <span className="truncate">System Settings</span>
         </button>
         <button
           onClick={() => setActiveTab("users")}
@@ -385,7 +447,7 @@ export default function AdminPage() {
           }`}
         >
           <ScrollText size={16} className="shrink-0" />
-          <span className="truncate">Audit Activity Logs</span>
+          <span className="truncate">Activity Logs</span>
         </button>
       </div>
 
@@ -661,6 +723,160 @@ export default function AdminPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ─── System Settings Tab ───────────────────────────────────────── */}
+      {activeTab === "settings" && (
+        <div className="space-y-6">
+          {/* Top Banner */}
+          <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-blue-50 via-slate-50 to-indigo-50/50 border border-blue-200/80 shadow-xs">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-blue-600/15 flex items-center justify-center text-blue-700 shrink-0 mt-0.5">
+                <Sliders size={20} />
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-800 text-sm sm:text-base">
+                  System Preferences &amp; Daily Input Configuration
+                </h3>
+                <p className="text-xs sm:text-sm text-slate-600 mt-0.5 max-w-2xl">
+                  Configure operational display behaviors and operator interface indicators for the MD Carton line.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Setting Card: Target Override Display Toggle */}
+          <div className="bg-white rounded-2xl p-5 sm:p-6 border border-slate-200/90 shadow-sm">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-slate-100">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h4 className="font-extrabold text-slate-900 text-base sm:text-lg">
+                    Show Target Override Badge in Daily Input
+                  </h4>
+                  <span
+                    className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-black uppercase tracking-wider ${
+                      showOverrideBadge
+                        ? "bg-emerald-100 text-emerald-800"
+                        : "bg-slate-100 text-slate-600"
+                    }`}
+                  >
+                    {showOverrideBadge ? "Shown (Active)" : "Hidden (Clean Mode)"}
+                  </span>
+                </div>
+                <p className="text-xs sm:text-sm text-slate-500 max-w-xl">
+                  When a target has been modified (override), an amber <strong>Override</strong> tag normally appears next to the target in the Daily Input table and cards. As an administrator, you can turn off this display option so operators only see standard clean numbers.
+                </p>
+              </div>
+
+              {/* Interactive Toggle Switch */}
+              <div className="flex items-center gap-3 shrink-0">
+                <button
+                  type="button"
+                  id="toggle-override-badge-btn"
+                  onClick={() => handleToggleOverrideBadge(!showOverrideBadge)}
+                  disabled={updatingSetting}
+                  className={`relative inline-flex h-8 w-16 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                    showOverrideBadge ? "bg-emerald-600" : "bg-slate-300"
+                  } ${updatingSetting ? "opacity-60 cursor-wait" : ""}`}
+                  role="switch"
+                  aria-checked={showOverrideBadge}
+                >
+                  <span
+                    aria-hidden="true"
+                    className={`pointer-events-none inline-block h-7 w-7 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                      showOverrideBadge ? "translate-x-8" : "translate-x-0"
+                    }`}
+                  />
+                </button>
+                <span className="text-xs font-bold text-slate-700 min-w-[55px]">
+                  {updatingSetting ? "Saving..." : showOverrideBadge ? "Visible" : "Hidden"}
+                </span>
+              </div>
+            </div>
+
+            {/* Live Visual Comparison Box */}
+            <div className="mt-5 pt-1">
+              <h5 className="text-xs font-bold text-slate-600 uppercase tracking-wider mb-3">
+                Live Preview: How Daily Input Slots Appear to Operators
+              </h5>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Preview Box */}
+                <div
+                  className={`p-4 rounded-xl border-2 transition-all ${
+                    showOverrideBadge
+                      ? "border-emerald-500/80 bg-emerald-50/20 shadow-xs"
+                      : "border-blue-500/80 bg-blue-50/20 shadow-xs"
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[11px] font-black uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                      <span className={`w-2 h-2 rounded-full ${showOverrideBadge ? "bg-emerald-500" : "bg-blue-500"}`}></span>
+                      Current Operator View
+                    </span>
+                    <span className="text-[10px] text-slate-400 font-semibold">Slot #1 (05:30 – 06:30)</span>
+                  </div>
+
+                  <div className="bg-white rounded-lg p-3 border border-slate-200 shadow-xs flex items-center justify-between">
+                    <div>
+                      <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">
+                        Target
+                      </span>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span className="text-lg font-black text-slate-800">140</span>
+                        {showOverrideBadge && (
+                          <span className="badge badge-override text-[10px] py-0 px-1.5 animate-fade-in">
+                            Override
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">
+                        Actual
+                      </span>
+                      <span className="text-base font-black text-slate-800">142</span>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">
+                        Variance
+                      </span>
+                      <span className="text-sm font-black text-emerald-600">+2</span>
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-2">
+                    {showOverrideBadge
+                      ? "The amber 'Override' badge is currently displayed to indicate this slot target was modified."
+                      : "The target is displayed cleanly as 140 cartons with NO override badge shown."}
+                  </p>
+                </div>
+
+                {/* Explanation Card */}
+                <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/60 flex flex-col justify-between">
+                  <div>
+                    <h6 className="text-xs font-bold text-slate-800 flex items-center gap-1.5 mb-1.5">
+                      <CheckCircle2 size={14} className="text-blue-600 shrink-0" />
+                      Guaranteed Calculation Integrity
+                    </h6>
+                    <p className="text-xs text-slate-600 leading-relaxed">
+                      Turning off the override badge only affects the visual badge tag on the Daily Input page.
+                      The customized target (e.g. 140), hourly variance, efficiency calculations, and shift cumulative performance remain completely intact and accurate.
+                    </p>
+                  </div>
+                  <div className="mt-3 pt-3 border-t border-slate-200/80 flex items-center justify-between text-xs">
+                    <span className="text-slate-500">Quick action:</span>
+                    <button
+                      onClick={() => handleToggleOverrideBadge(!showOverrideBadge)}
+                      disabled={updatingSetting}
+                      className="text-blue-600 hover:text-blue-700 font-bold hover:underline cursor-pointer disabled:opacity-50"
+                    >
+                      {showOverrideBadge ? "Hide Override Badge" : "Show Override Badge"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}

@@ -109,6 +109,15 @@ async function initDatabase() {
         CONSTRAINT "audit_logs_pkey" PRIMARY KEY ("id")
       );
     `);
+
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "system_settings" (
+        "key" TEXT NOT NULL,
+        "value" TEXT NOT NULL,
+        "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "system_settings_pkey" PRIMARY KEY ("key")
+      );
+    `);
     console.log('  ✅ Tables created');
 
     console.log('📦 Step 3: Creating Indexes and Foreign Keys...');

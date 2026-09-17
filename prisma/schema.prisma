@@ -128,3 +128,13 @@ model AuditLog {
 
   @@map("audit_logs")
 }
+
+// ─── System Settings ───────────────────────────────────────────────
+
+model SystemSetting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@map("system_settings")
+}

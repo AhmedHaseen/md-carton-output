@@ -45,8 +45,24 @@ export async function GET(request: NextRequest) {
     // Calculate default rotation duty for this date
     const defaultDuty = getDefaultShiftTeams(dateStr);
 
+    // Fetch system settings
+    let showOverrideBadge = true;
+    try {
+      const setting = await prisma.systemSetting.findUnique({
+        where: { key: "SHOW_OVERRIDE_BADGE" },
+      });
+      if (setting && setting.value === "false") {
+        showOverrideBadge = false;
+      }
+    } catch {
+      // fallback to true
+    }
+
     if (!workDay) {
-      return NextResponse.json({ workDay: null, exists: false, defaultDuty }, { headers });
+      return NextResponse.json(
+        { workDay: null, exists: false, defaultDuty, settings: { showOverrideBadge } },
+        { headers }
+      );
     }
 
     // If day exists but shift teams were null, automatically backfill from weekly rotation
@@ -66,7 +82,10 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    return NextResponse.json({ workDay, exists: true, defaultDuty }, { headers });
+    return NextResponse.json(
+      { workDay, exists: true, defaultDuty, settings: { showOverrideBadge } },
+      { headers }
+    );
   } catch (error) {
     console.error("GET /api/work-days error:", error);
     return NextResponse.json(

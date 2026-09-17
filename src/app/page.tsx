@@ -101,6 +101,7 @@ function HomeContent() {
     eveningTeam: "A" | "B";
     weekRange?: string;
   } | null>(null);
+  const [showOverrideBadge, setShowOverrideBadge] = useState<boolean>(true);
 
   // Fetch work day data
   const fetchWorkDay = useCallback(async (date: string) => {
@@ -110,6 +111,9 @@ function HomeContent() {
         cache: "no-store",
       });
       const data = await res.json();
+      if (data && data.settings && typeof data.settings.showOverrideBadge === "boolean") {
+        setShowOverrideBadge(data.settings.showOverrideBadge);
+      }
       if (data && data.defaultDuty) {
         setDefaultDuty(data.defaultDuty);
       }
@@ -577,6 +581,7 @@ function HomeContent() {
               onSave={handleSave}
               canEdit={true}
               userRole={session?.user?.role}
+              showOverrideBadge={showOverrideBadge}
             />
           )}
 
@@ -593,6 +598,7 @@ function HomeContent() {
               onSave={handleSave}
               canEdit={true}
               userRole={session?.user?.role}
+              showOverrideBadge={showOverrideBadge}
             />
           )}
 

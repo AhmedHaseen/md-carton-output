@@ -29,6 +29,7 @@ interface DailyOutputTableProps {
   onSave: (entryId: string, actualCartons: number | null) => Promise<void>;
   canEdit: boolean;
   userRole?: string;
+  showOverrideBadge?: boolean;
 }
 
 function getStatusBadge(status: SlotWithCalculations["status"]) {
@@ -83,6 +84,7 @@ export default function DailyOutputTable({
   onSave,
   canEdit,
   userRole,
+  showOverrideBadge = true,
 }: DailyOutputTableProps) {
   const isAdminOrManager = userRole === "ADMIN" || userRole === "MANAGER";
 
@@ -247,9 +249,6 @@ export default function DailyOutputTable({
                   >
                     <Users size={12} />
                     Shift {team}
-                  </span>
-                  <span className="text-[11px] text-slate-500 font-medium hidden sm:inline">
-                    ({shift === "MORNING" ? "Evening" : "Morning"} automatically set to Shift {counterpartTeam || (team === "A" ? "B" : "A")})
                   </span>
                   {isAdminOrManager && canEdit && isOpen && onAssignTeam ? (
                     <>
@@ -493,7 +492,7 @@ export default function DailyOutputTable({
                     <span className="text-lg font-black text-slate-700">
                       {entry.targetCartons}
                     </span>
-                    {entry.targetSource === "OVERRIDE" && (
+                    {showOverrideBadge && entry.targetSource === "OVERRIDE" && (
                       <span className="badge badge-override text-[10px] py-0 px-1.5">
                         Override
                       </span>
@@ -636,13 +635,13 @@ export default function DailyOutputTable({
                           {formatTimeRange(entry.startTime, entry.endTime)}
                         </div>
                         {breakInfo && (
-                          <span className="text-[11px] text-amber-600 font-semibold flex items-center gap-1">
+                          <span className="inline-flex items-center gap-1 text-[11px] text-amber-700 font-medium">
                             <breakInfo.icon size={11} />
                             {breakInfo.label} ({breakInfo.target})
                           </span>
                         )}
                       </div>
-                      {entry.targetSource === "OVERRIDE" && (
+                      {showOverrideBadge && entry.targetSource === "OVERRIDE" && (
                         <span className="ml-auto badge badge-override text-[10px]">
                           Override
                         </span>

@@ -23,6 +23,20 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const type = searchParams.get("type"); // "audit", "users", or "shifts"
 
+    if (type === "settings") {
+      const allSettings = await prisma.systemSetting.findMany();
+      const settingsMap: Record<string, string> = {};
+      for (const s of allSettings) {
+        settingsMap[s.key] = s.value;
+      }
+      return NextResponse.json({
+        settings: {
+          showOverrideBadge: settingsMap["SHOW_OVERRIDE_BADGE"] !== "false",
+        },
+        raw: settingsMap,
+      });
+    }
+
     if (type === "shifts") {
       const dateParam = searchParams.get("date");
       const targetDate = dateParam || new Date();
@@ -97,6 +111,45 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
+
+    // ─── System Settings Actions ─────────────────────────────────────
+    if (body.action === "UPDATE_SETTING" || body.type === "settings") {
+      const { key, value } = body;
+      if (!key || typeof value === "undefined") {
+        return NextResponse.json(
+          { error: "key and value are required" },
+          { status: 400 }
+        );
+      }
+
+      const stringValue = String(value);
+
+      const setting = await prisma.systemSetting.upsert({
+        where: { key },
+        create: { key, value: stringValue },
+        update: { value: stringValue },
+      });
+
+      await prisma.auditLog.create({
+        data: {
+          userId: session.user.id,
+          action: "UPDATE",
+          entityType: "SystemSetting",
+          entityId: key,
+          detailsJson: {
+            settingKey: key,
+            newValue: stringValue,
+            performedBy: session.user.username,
+          },
+        },
+      });
+
+      return NextResponse.json({
+        success: true,
+        setting,
+        showOverrideBadge: stringValue !== "false",
+      });
+    }
 
     // ─── Shift Rotation Actions ─────────────────────────────────────
     if (body.type === "shifts" || body.action === "SWAP_WEEK" || body.action === "OVERRIDE_DAY") {

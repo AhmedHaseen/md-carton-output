@@ -13,13 +13,25 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const dateStr = searchParams.get("date");
 
+    let showOverrideBadge = true;
+    try {
+      const setting = await prisma.systemSetting.findUnique({
+        where: { key: "SHOW_OVERRIDE_BADGE" },
+      });
+      if (setting && setting.value === "false") {
+        showOverrideBadge = false;
+      }
+    } catch {
+      // fallback to true
+    }
+
     if (!dateStr) {
       // Return all default time slots
       const timeSlots = await prisma.mdTimeSlot.findMany({
         where: { isActive: true },
         orderBy: { sequenceNo: "asc" },
       });
-      return NextResponse.json({ timeSlots });
+      return NextResponse.json({ timeSlots, settings: { showOverrideBadge } });
     }
 
     // Get overrides for a specific date
@@ -39,10 +51,10 @@ export async function GET(request: NextRequest) {
     });
 
     if (!workDay) {
-      return NextResponse.json({ error: "Work day not found" }, { status: 404 });
+      return NextResponse.json({ error: "Work day not found", settings: { showOverrideBadge } }, { status: 404 });
     }
 
-    return NextResponse.json({ workDay });
+    return NextResponse.json({ workDay, settings: { showOverrideBadge } });
   } catch (error) {
     console.error("GET /api/targets error:", error);
     return NextResponse.json({ error: "Failed to fetch targets" }, { status: 500 });
