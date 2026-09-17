@@ -60,6 +60,15 @@ function formatVariance(variance: number | null): React.ReactNode {
   return <span className={color}>{sign}{variance}</span>;
 }
 
+function formatRemainingTime(minutes: number): string {
+  if (minutes <= 0) return "0m";
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  if (hours > 0 && mins > 0) return `${hours}h ${mins}m`;
+  if (hours > 0 && mins === 0) return `${hours}h`;
+  return `${mins}m`;
+}
+
 function getBreakInfo(sequenceNo: number) {
   if (sequenceNo === 3) {
     return { label: "Breakfast Break", icon: Utensils, target: 80 };
@@ -97,6 +106,16 @@ export default function DailyOutputTable({
   const [editValue, setEditValue] = useState<string>("");
   const [saving, setSaving] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Live clock tracker to update countdowns smoothly in real time
+  const [now, setNow] = useState<Date>(() => new Date());
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setNow(new Date());
+    }, 10000);
+    return () => clearInterval(timer);
+  }, []);
 
   // Shift Name manual typing state
   const [teamInput, setTeamInput] = useState<string>(team ? `Shift ${team}` : "");
@@ -159,41 +178,38 @@ export default function DailyOutputTable({
   const getSlotLockInfo = useCallback(
     (entry: SlotWithCalculations) => {
       if (!enforce30MinLock || !workDate) {
-        return { isLocked: false, inGracePeriod: false, isFuture: false };
+        return { isLocked: false, inGracePeriod: false, isFuture: false, minutesRemaining: 0 };
       }
 
-      const now = new Date();
       const slotStart = new Date(`${workDate}T${entry.startTime}:00`);
       const slotEnd = new Date(`${workDate}T${entry.endTime}:00`);
       const cutoff = new Date(slotEnd.getTime() + 30 * 60 * 1000);
 
-      // Slot end + 30 min cutoff has passed
+      // Slot end + 30 min cutoff has passed -> Locked
       if (now > cutoff) {
-        return { isLocked: true, inGracePeriod: false, isFuture: false };
+        return { isLocked: true, inGracePeriod: false, isFuture: false, minutesRemaining: 0 };
       }
 
-      // Slot end has passed, but still within 30-min window
-      if (now >= slotEnd && now <= cutoff) {
-        const minsRemaining = Math.max(
-          1,
-          Math.ceil((cutoff.getTime() - now.getTime()) / (60 * 1000))
-        );
-        return {
-          isLocked: false,
-          inGracePeriod: true,
-          minutesRemaining: minsRemaining,
-          isFuture: false,
-        };
-      }
-
-      // Slot hasn't started yet
+      // Slot hasn't started yet -> Future
       if (now < slotStart) {
-        return { isLocked: false, inGracePeriod: false, isFuture: true };
+        return { isLocked: false, inGracePeriod: false, isFuture: true, minutesRemaining: 0 };
       }
 
-      return { isLocked: false, inGracePeriod: false, isFuture: false };
+      // Slot is OPEN (from slotStart until cutoff):
+      // Count down how many minutes remain until it locks
+      const minsRemaining = Math.max(
+        1,
+        Math.ceil((cutoff.getTime() - now.getTime()) / (60 * 1000))
+      );
+
+      return {
+        isLocked: false,
+        inGracePeriod: true,
+        minutesRemaining: minsRemaining,
+        isFuture: false,
+      };
     },
-    [enforce30MinLock, workDate]
+    [enforce30MinLock, workDate, now]
   );
 
   const handleEdit = useCallback(
@@ -502,6 +518,7 @@ export default function DailyOutputTable({
           const isEditing = editingId === entry.id;
           const isSaving = saving === entry.id;
           const breakInfo = getBreakInfo(entry.sequenceNo);
+          const lockInfo = getSlotLockInfo(entry);
 
           return (
             <div
@@ -514,13 +531,19 @@ export default function DailyOutputTable({
             >
               {/* Card Header: Slot Sequence, Time & Status */}
               <div className="flex items-center justify-between gap-2 mb-2 pb-2 border-b border-slate-100">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <span className="w-5 h-5 rounded-md bg-slate-100 text-slate-600 font-mono text-xs flex items-center justify-center font-bold">
                     {entry.sequenceNo}
                   </span>
                   <span className="font-bold text-slate-800 text-sm">
                     {formatTimeRange(entry.startTime, entry.endTime)}
                   </span>
+                  {lockInfo.inGracePeriod && (
+                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-extrabold bg-amber-50 text-amber-700 border border-amber-200/90 shadow-2xs">
+                      <Clock size={10} className="text-amber-600 animate-pulse" />
+                      <span>Closes in {formatRemainingTime(lockInfo.minutesRemaining)}</span>
+                    </span>
+                  )}
                 </div>
                 <div>{getStatusBadge(entry.status)}</div>
               </div>
@@ -632,7 +655,7 @@ export default function DailyOutputTable({
                             {lockInfo.inGracePeriod && (
                               <span className="text-[10px] font-bold text-amber-700 bg-amber-100/80 border border-amber-200/80 px-1.5 py-0.5 rounded-md flex items-center gap-1">
                                 <Clock size={10} />
-                                <span>Closes in {lockInfo.minutesRemaining}m</span>
+                                <span>Closes in {formatRemainingTime(lockInfo.minutesRemaining)}</span>
                               </span>
                             )}
                           </div>
@@ -681,7 +704,7 @@ export default function DailyOutputTable({
                           {lockInfo.inGracePeriod && (
                             <span className="text-[10px] font-bold text-amber-700 bg-amber-100/80 border border-amber-200/80 px-1.5 py-0.5 rounded-md flex items-center gap-1">
                               <Clock size={10} />
-                              <span>Closes in {lockInfo.minutesRemaining}m</span>
+                              <span>Closes in {formatRemainingTime(lockInfo.minutesRemaining)}</span>
                             </span>
                           )}
                         </div>
@@ -729,6 +752,7 @@ export default function DailyOutputTable({
               const isEditing = editingId === entry.id;
               const isSaving = saving === entry.id;
               const breakInfo = getBreakInfo(entry.sequenceNo);
+              const lockInfo = getSlotLockInfo(entry);
 
               return (
                 <tr
@@ -744,8 +768,14 @@ export default function DailyOutputTable({
                         {entry.sequenceNo}
                       </span>
                       <div>
-                        <div className="font-semibold text-slate-800 text-sm">
-                          {formatTimeRange(entry.startTime, entry.endTime)}
+                        <div className="font-semibold text-slate-800 text-sm flex items-center gap-2">
+                          <span>{formatTimeRange(entry.startTime, entry.endTime)}</span>
+                          {lockInfo.inGracePeriod && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-amber-50 text-amber-700 border border-amber-200/90 shadow-2xs">
+                              <Clock size={11} className="text-amber-600 animate-pulse" />
+                              <span>Closes in {formatRemainingTime(lockInfo.minutesRemaining)}</span>
+                            </span>
+                          )}
                         </div>
                         {breakInfo && (
                           <span className="inline-flex items-center gap-1 text-[11px] text-amber-700 font-medium">
@@ -858,7 +888,7 @@ export default function DailyOutputTable({
                               {lockInfo.inGracePeriod && (
                                 <span className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200/80 px-1.5 py-0.5 rounded-md inline-flex items-center gap-1">
                                   <Clock size={10} className="text-amber-600" />
-                                  <span>Closes in {lockInfo.minutesRemaining}m</span>
+                                  <span>Closes in {formatRemainingTime(lockInfo.minutesRemaining)}</span>
                                 </span>
                               )}
                             </div>
@@ -911,7 +941,7 @@ export default function DailyOutputTable({
                             {lockInfo.inGracePeriod && (
                               <span className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200/80 px-1.5 py-0.5 rounded-md inline-flex items-center gap-1">
                                 <Clock size={10} className="text-amber-600" />
-                                <span>Closes in {lockInfo.minutesRemaining}m</span>
+                                <span>Closes in {formatRemainingTime(lockInfo.minutesRemaining)}</span>
                               </span>
                             )}
                           </div>
