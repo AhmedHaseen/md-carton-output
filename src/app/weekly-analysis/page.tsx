@@ -619,281 +619,307 @@ function WeeklyAnalysisContent() {
             )}
           </div>
 
-          {/* Shift Comparison + Daily Summary Table */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-            {/* Shift Comparison Graph with Interactive View Mode */}
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-200/90 p-3.5 sm:p-5 min-w-0">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
-                <div>
-                  <h3 className="font-bold text-slate-800 text-sm sm:text-base">
-                    Shift Comparison
-                  </h3>
-                  <p className="text-[11px] text-slate-500">
-                    {shiftChartMode === "team" ? "Shift A Team vs Shift B Team" : "Morning Shift vs Evening Shift"}
-                  </p>
-                </div>
-                {/* View Mode Toggle Buttons */}
-                <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200/80">
-                  <button
-                    onClick={() => setShiftChartMode("team")}
-                    className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-all flex items-center gap-1 ${
-                      shiftChartMode === "team"
-                        ? "bg-white text-blue-700 shadow-xs"
-                        : "text-slate-600 hover:text-slate-900"
-                    }`}
-                  >
-                    <Users size={13} />
-                    Shift Teams (A vs B)
-                  </button>
-                  <button
-                    onClick={() => setShiftChartMode("time")}
-                    className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-all flex items-center gap-1 ${
-                      shiftChartMode === "time"
-                        ? "bg-white text-amber-700 shadow-xs"
-                        : "text-slate-600 hover:text-slate-900"
-                    }`}
-                  >
-                    <Clock size={13} />
-                    Shift Time (M vs E)
-                  </button>
-                </div>
+          {/* Shift Comparison Graph with Interactive View Mode (Full Width) */}
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-200/90 p-4 sm:p-5 mb-6 min-w-0">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+              <div>
+                <h3 className="font-bold text-slate-800 text-sm sm:text-base">
+                  Shift Comparison
+                </h3>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  {shiftChartMode === "team" ? "Shift A Team vs Shift B Team Output" : "Morning Shift vs Evening Shift Output"}
+                </p>
               </div>
-
-              <div className="w-full h-[220px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={dailyData} margin={{ top: 10, right: 10, left: -20, bottom: 10 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                    <XAxis dataKey="displayDate" tick={{ fontSize: 10 }} />
-                    <YAxis tick={{ fontSize: 11 }} />
-                    <Tooltip
-                      content={({ active, payload, label }) => {
-                        if (active && payload && payload.length) {
-                          const d = payload[0]?.payload as DayData;
-                          if (!d) return null;
-
-                          return (
-                            <div className="bg-white/95 backdrop-blur-md p-3.5 rounded-xl border border-slate-200 shadow-xl text-xs space-y-2 min-w-[220px]">
-                              <div className="border-b border-slate-100 pb-1 flex items-center justify-between">
-                                <p className="font-bold text-slate-800 text-sm">{label || d.displayDate}</p>
-                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-700">
-                                  {shiftChartMode === "team" ? "By Shift Team" : "By Shift Time"}
-                                </span>
-                              </div>
-
-                              {shiftChartMode === "team" ? (
-                                <div className="space-y-1.5 pt-0.5">
-                                  <div className="p-2 rounded-lg bg-blue-50/70 border border-blue-200/60">
-                                    <div className="flex justify-between items-center text-blue-900 font-bold">
-                                      <span>Shift A Team ({d.morningTeam === "A" ? "Morning" : "Evening"}):</span>
-                                      <span className="font-black text-blue-700">{d.teamAActual.toLocaleString()}</span>
-                                    </div>
-                                    <div className="flex justify-between items-center text-blue-700 text-[11px] mt-0.5">
-                                      <span>Target: {d.teamATarget.toLocaleString()}</span>
-                                      <span className="font-extrabold">{d.teamAPerf.toFixed(2)}%</span>
-                                    </div>
-                                  </div>
-
-                                  <div className="p-2 rounded-lg bg-purple-50/70 border border-purple-200/60">
-                                    <div className="flex justify-between items-center text-purple-900 font-bold">
-                                      <span>Shift B Team ({d.morningTeam === "B" ? "Morning" : "Evening"}):</span>
-                                      <span className="font-black text-purple-700">{d.teamBActual.toLocaleString()}</span>
-                                    </div>
-                                    <div className="flex justify-between items-center text-purple-700 text-[11px] mt-0.5">
-                                      <span>Target: {d.teamBTarget.toLocaleString()}</span>
-                                      <span className="font-extrabold">{d.teamBPerf.toFixed(2)}%</span>
-                                    </div>
-                                  </div>
-                                </div>
-                              ) : (
-                                <div className="space-y-1.5 pt-0.5">
-                                  <div className="p-2 rounded-lg bg-amber-50/70 border border-amber-200/60">
-                                    <div className="flex justify-between items-center text-amber-900 font-bold">
-                                      <span>Morning (Shift {d.morningTeam}):</span>
-                                      <span className="font-black text-amber-800">{d.morningActual.toLocaleString()}</span>
-                                    </div>
-                                    <div className="flex justify-between items-center text-amber-700 text-[11px] mt-0.5">
-                                      <span>Target: {d.morningTarget.toLocaleString()}</span>
-                                      <span className="font-extrabold">
-                                        {d.morningTarget > 0 ? ((d.morningActual / d.morningTarget) * 100).toFixed(2) : "0.00"}%
-                                      </span>
-                                    </div>
-                                  </div>
-
-                                  <div className="p-2 rounded-lg bg-indigo-50/70 border border-indigo-200/60">
-                                    <div className="flex justify-between items-center text-indigo-900 font-bold">
-                                      <span>Evening (Shift {d.eveningTeam}):</span>
-                                      <span className="font-black text-indigo-800">{d.eveningActual.toLocaleString()}</span>
-                                    </div>
-                                    <div className="flex justify-between items-center text-indigo-700 text-[11px] mt-0.5">
-                                      <span>Target: {d.eveningTarget.toLocaleString()}</span>
-                                      <span className="font-extrabold">
-                                        {d.eveningTarget > 0 ? ((d.eveningActual / d.eveningTarget) * 100).toFixed(2) : "0.00"}%
-                                      </span>
-                                    </div>
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          );
-                        }
-                        return null;
-                      }}
-                    />
-                    <Legend wrapperStyle={{ fontSize: "11px" }} />
-                    {shiftChartMode === "team" ? (
-                      <>
-                        <Bar
-                          dataKey="teamAActual"
-                          name="Shift A Team"
-                          fill="#2563eb"
-                          radius={[4, 4, 0, 0]}
-                        />
-                        <Bar
-                          dataKey="teamBActual"
-                          name="Shift B Team"
-                          fill="#9333ea"
-                          radius={[4, 4, 0, 0]}
-                        />
-                      </>
-                    ) : (
-                      <>
-                        <Bar
-                          dataKey="morningActual"
-                          name="Morning Shift"
-                          fill="#f59e0b"
-                          radius={[4, 4, 0, 0]}
-                        />
-                        <Bar
-                          dataKey="eveningActual"
-                          name="Evening Shift"
-                          fill="#6366f1"
-                          radius={[4, 4, 0, 0]}
-                        />
-                      </>
-                    )}
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-              <div className="flex flex-col sm:flex-row items-center justify-around gap-2 pt-3 border-t border-slate-100 text-xs font-semibold">
-                <div className="flex items-center gap-2">
-                  <span className="w-2.5 h-2.5 rounded-full bg-blue-600 inline-block" />
-                  <span className="text-slate-600">
-                    Shift A: <strong className="text-slate-900">{weeklyTeamAActual.toLocaleString()}</strong> ({weeklyTeamAPerf.toFixed(2)}%)
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="w-2.5 h-2.5 rounded-full bg-purple-600 inline-block" />
-                  <span className="text-slate-600">
-                    Shift B: <strong className="text-slate-900">{weeklyTeamBActual.toLocaleString()}</strong> ({weeklyTeamBPerf.toFixed(2)}%)
-                  </span>
-                </div>
-                <div className="flex items-center gap-2 text-slate-400 font-normal">
-                  <span>•</span>
-                  <span>M: {weeklyMorning.toLocaleString()}</span>
-                  <span>•</span>
-                  <span>E: {weeklyEvening.toLocaleString()}</span>
-                </div>
+              {/* View Mode Toggle Buttons */}
+              <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200/80 self-start sm:self-auto">
+                <button
+                  onClick={() => setShiftChartMode("team")}
+                  className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
+                    shiftChartMode === "team"
+                      ? "bg-white text-blue-700 shadow-xs"
+                      : "text-slate-600 hover:text-slate-900"
+                  }`}
+                >
+                  <Users size={13} />
+                  Shift Teams (A vs B)
+                </button>
+                <button
+                  onClick={() => setShiftChartMode("time")}
+                  className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
+                    shiftChartMode === "time"
+                      ? "bg-white text-amber-700 shadow-xs"
+                      : "text-slate-600 hover:text-slate-900"
+                  }`}
+                >
+                  <Clock size={13} />
+                  Shift Time (M vs E)
+                </button>
               </div>
             </div>
 
-            {/* Daily Summary Table */}
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-200/90 p-3.5 sm:p-5 min-w-0">
-              <h3 className="font-bold text-slate-800 text-sm sm:text-base mb-3">
-                Daily Breakdown
-              </h3>
-              <div className="overflow-x-auto touch-scroll">
-                <table className="data-table text-xs sm:text-sm">
-                  <thead>
-                    <tr>
-                      <th>Day</th>
-                      <th className="text-center">Duty Teams</th>
-                      <th className="text-center">Cartons</th>
-                      <th className="text-center">Target</th>
-                      <th className="text-center">Day %</th>
-                      <th className="text-center">Shift A</th>
-                      <th className="text-center">Shift B</th>
-                      <th className="text-center">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {dailyData.map((d) => (
-                      <tr key={d.date} className="hover:bg-blue-50/40 transition-colors">
-                        <td>
-                          <Link
-                            href={`/daily-analysis?date=${d.date}`}
-                            onClick={() => {
-                              if (typeof window !== "undefined") {
-                                localStorage.setItem("md_carton_selected_date", d.date);
-                              }
-                            }}
-                            className="font-semibold text-blue-600 hover:text-blue-800 hover:underline inline-flex items-center gap-1"
-                            title={`View Daily Analysis for ${d.displayDate}`}
-                          >
-                            <BarChart3 size={13} className="shrink-0 text-blue-500" />
-                            <span>{d.displayDate}</span>
-                          </Link>
-                        </td>
-                        <td className="text-center">
-                          {d.morningTeam ? (
-                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded-md">
-                              <span className="text-blue-700">M:{d.morningTeam}</span>
-                              <span className="text-slate-400">•</span>
-                              <span className="text-purple-700">E:{d.eveningTeam || "—"}</span>
-                            </span>
-                          ) : (
-                            <span className="text-xs text-slate-400 font-medium">—</span>
-                          )}
-                        </td>
-                        <td className="text-center font-bold text-slate-900">
-                          {d.totalActual.toLocaleString()}
-                        </td>
-                        <td className="text-center text-slate-500">
-                          {d.totalTarget.toLocaleString()}
-                        </td>
-                        <td
-                          className={`text-center font-extrabold ${
-                            d.achievementPercent >= 100
-                              ? "text-emerald-600"
-                              : d.achievementPercent >= 80
-                              ? "text-amber-600"
-                              : "text-red-600"
-                          }`}
-                        >
-                          {d.achievementPercent.toFixed(2)}%
-                        </td>
-                        <td
-                          className={`text-center font-black ${
-                            d.teamAPerf >= 100 ? "text-emerald-600" : "text-amber-600"
-                          }`}
-                        >
-                          {d.teamAPerf.toFixed(2)}%
-                        </td>
-                        <td
-                          className={`text-center font-black ${
-                            d.teamBPerf >= 100 ? "text-emerald-600" : "text-amber-600"
-                          }`}
-                        >
-                          {d.teamBPerf.toFixed(2)}%
-                        </td>
-                        <td className="text-center">
-                          <Link
-                            href={`/daily-analysis?date=${d.date}`}
-                            onClick={() => {
-                              if (typeof window !== "undefined") {
-                                localStorage.setItem("md_carton_selected_date", d.date);
-                                window.dispatchEvent(new CustomEvent("md_carton_date_change"));
-                              }
-                            }}
-                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-[11px] border border-blue-200/80 transition-colors shadow-2xs"
-                          >
-                            <span>Analysis</span>
-                          </Link>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+            <div className="w-full h-[260px] sm:h-[300px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={dailyData} margin={{ top: 10, right: 10, left: -20, bottom: 10 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                  <XAxis dataKey="displayDate" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} />
+                  <Tooltip
+                    content={({ active, payload, label }) => {
+                      if (active && payload && payload.length) {
+                        const d = payload[0]?.payload as DayData;
+                        if (!d) return null;
+
+                        return (
+                          <div className="bg-white/95 backdrop-blur-md p-3.5 rounded-xl border border-slate-200 shadow-xl text-xs space-y-2 min-w-[220px]">
+                            <div className="border-b border-slate-100 pb-1 flex items-center justify-between">
+                              <p className="font-bold text-slate-800 text-sm">{label || d.displayDate}</p>
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-700">
+                                {shiftChartMode === "team" ? "By Shift Team" : "By Shift Time"}
+                              </span>
+                            </div>
+
+                            {shiftChartMode === "team" ? (
+                              <div className="space-y-1.5 pt-0.5">
+                                <div className="p-2 rounded-lg bg-blue-50/70 border border-blue-200/60">
+                                  <div className="flex justify-between items-center text-blue-900 font-bold">
+                                    <span>Shift A Team ({d.morningTeam === "A" ? "Morning" : "Evening"}):</span>
+                                    <span className="font-black text-blue-700">{d.teamAActual.toLocaleString()}</span>
+                                  </div>
+                                  <div className="flex justify-between items-center text-blue-700 text-[11px] mt-0.5">
+                                    <span>Target: {d.teamATarget.toLocaleString()}</span>
+                                    <span className="font-extrabold">{d.teamAPerf.toFixed(2)}%</span>
+                                  </div>
+                                </div>
+
+                                <div className="p-2 rounded-lg bg-purple-50/70 border border-purple-200/60">
+                                  <div className="flex justify-between items-center text-purple-900 font-bold">
+                                    <span>Shift B Team ({d.morningTeam === "B" ? "Morning" : "Evening"}):</span>
+                                    <span className="font-black text-purple-700">{d.teamBActual.toLocaleString()}</span>
+                                  </div>
+                                  <div className="flex justify-between items-center text-purple-700 text-[11px] mt-0.5">
+                                    <span>Target: {d.teamBTarget.toLocaleString()}</span>
+                                    <span className="font-extrabold">{d.teamBPerf.toFixed(2)}%</span>
+                                  </div>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="space-y-1.5 pt-0.5">
+                                <div className="p-2 rounded-lg bg-amber-50/70 border border-amber-200/60">
+                                  <div className="flex justify-between items-center text-amber-900 font-bold">
+                                    <span>Morning (Shift {d.morningTeam}):</span>
+                                    <span className="font-black text-amber-800">{d.morningActual.toLocaleString()}</span>
+                                  </div>
+                                  <div className="flex justify-between items-center text-amber-700 text-[11px] mt-0.5">
+                                    <span>Target: {d.morningTarget.toLocaleString()}</span>
+                                    <span className="font-extrabold">
+                                      {d.morningTarget > 0 ? ((d.morningActual / d.morningTarget) * 100).toFixed(2) : "0.00"}%
+                                    </span>
+                                  </div>
+                                </div>
+
+                                <div className="p-2 rounded-lg bg-indigo-50/70 border border-indigo-200/60">
+                                  <div className="flex justify-between items-center text-indigo-900 font-bold">
+                                    <span>Evening (Shift {d.eveningTeam}):</span>
+                                    <span className="font-black text-indigo-800">{d.eveningActual.toLocaleString()}</span>
+                                  </div>
+                                  <div className="flex justify-between items-center text-indigo-700 text-[11px] mt-0.5">
+                                    <span>Target: {d.eveningTarget.toLocaleString()}</span>
+                                    <span className="font-extrabold">
+                                      {d.eveningTarget > 0 ? ((d.eveningActual / d.eveningTarget) * 100).toFixed(2) : "0.00"}%
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      }
+                      return null;
+                    }}
+                  />
+                  <Legend wrapperStyle={{ fontSize: "12px", paddingTop: "6px" }} />
+                  {shiftChartMode === "team" ? (
+                    <>
+                      <Bar
+                        dataKey="teamAActual"
+                        name="Shift A Team"
+                        fill="#2563eb"
+                        radius={[4, 4, 0, 0]}
+                      />
+                      <Bar
+                        dataKey="teamBActual"
+                        name="Shift B Team"
+                        fill="#9333ea"
+                        radius={[4, 4, 0, 0]}
+                      />
+                    </>
+                  ) : (
+                    <>
+                      <Bar
+                        dataKey="morningActual"
+                        name="Morning Shift"
+                        fill="#f59e0b"
+                        radius={[4, 4, 0, 0]}
+                      />
+                      <Bar
+                        dataKey="eveningActual"
+                        name="Evening Shift"
+                        fill="#6366f1"
+                        radius={[4, 4, 0, 0]}
+                      />
+                    </>
+                  )}
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="flex flex-col sm:flex-row items-center justify-around gap-2 pt-3 border-t border-slate-100 text-xs font-semibold">
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-blue-600 inline-block" />
+                <span className="text-slate-600">
+                  Shift A: <strong className="text-slate-900">{weeklyTeamAActual.toLocaleString()}</strong> ({weeklyTeamAPerf.toFixed(2)}%)
+                </span>
               </div>
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-purple-600 inline-block" />
+                <span className="text-slate-600">
+                  Shift B: <strong className="text-slate-900">{weeklyTeamBActual.toLocaleString()}</strong> ({weeklyTeamBPerf.toFixed(2)}%)
+                </span>
+              </div>
+              <div className="flex items-center gap-2 text-slate-400 font-normal">
+                <span>•</span>
+                <span>M: {weeklyMorning.toLocaleString()}</span>
+                <span>•</span>
+                <span>E: {weeklyEvening.toLocaleString()}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Daily Breakdown Table (Full Width) */}
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-200/90 p-4 sm:p-6 w-full min-w-0">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+              <div>
+                <h3 className="font-bold text-slate-800 text-base sm:text-lg">
+                  Daily Breakdown
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Daily output, target achievement rates, and shift duty team performance
+                </p>
+              </div>
+              <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600 self-start sm:self-auto">
+                {dailyData.length} production day{dailyData.length === 1 ? "" : "s"}
+              </span>
+            </div>
+
+            <div className="overflow-x-auto touch-scroll w-full">
+              <table className="data-table text-xs sm:text-sm w-full">
+                <thead>
+                  <tr>
+                    <th>Day</th>
+                    <th className="text-center">Duty Teams</th>
+                    <th className="text-center">Cartons</th>
+                    <th className="text-center">Target</th>
+                    <th className="text-center">Day %</th>
+                    <th className="text-center">Shift A</th>
+                    <th className="text-center">Shift B</th>
+                    <th className="text-center">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {dailyData.map((d) => (
+                    <tr key={d.date} className="hover:bg-blue-50/40 transition-colors">
+                      <td className="font-semibold text-slate-800">
+                        <Link
+                          href={`/daily-analysis?date=${d.date}`}
+                          onClick={() => {
+                            if (typeof window !== "undefined") {
+                              localStorage.setItem("md_carton_selected_date", d.date);
+                            }
+                          }}
+                          className="font-semibold text-blue-600 hover:text-blue-800 hover:underline inline-flex items-center gap-1.5"
+                          title={`View Daily Analysis for ${d.displayDate}`}
+                        >
+                          <BarChart3 size={14} className="shrink-0 text-blue-500" />
+                          <span>{d.displayDate}</span>
+                        </Link>
+                      </td>
+                      <td className="text-center">
+                        {d.morningTeam ? (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded-md">
+                            <span className="text-blue-700">M:{d.morningTeam}</span>
+                            <span className="text-slate-400">•</span>
+                            <span className="text-purple-700">E:{d.eveningTeam || "—"}</span>
+                          </span>
+                        ) : (
+                          <span className="text-xs text-slate-400 font-medium">—</span>
+                        )}
+                      </td>
+                      <td className="text-center font-bold text-slate-900">
+                        {d.totalActual.toLocaleString()}
+                      </td>
+                      <td className="text-center text-slate-500 font-medium">
+                        {d.totalTarget.toLocaleString()}
+                      </td>
+                      <td
+                        className={`text-center font-extrabold ${
+                          d.achievementPercent >= 100
+                            ? "text-emerald-600"
+                            : d.achievementPercent >= 80
+                            ? "text-amber-600"
+                            : "text-red-600"
+                        }`}
+                      >
+                        {d.achievementPercent.toFixed(2)}%
+                      </td>
+                      <td
+                        className={`text-center font-black ${
+                          d.teamAPerf >= 100 ? "text-emerald-600" : "text-amber-600"
+                        }`}
+                      >
+                        {d.teamAPerf.toFixed(2)}%
+                      </td>
+                      <td
+                        className={`text-center font-black ${
+                          d.teamBPerf >= 100 ? "text-emerald-600" : "text-amber-600"
+                        }`}
+                      >
+                        {d.teamBPerf.toFixed(2)}%
+                      </td>
+                      <td className="text-center">
+                        <Link
+                          href={`/daily-analysis?date=${d.date}`}
+                          onClick={() => {
+                            if (typeof window !== "undefined") {
+                              localStorage.setItem("md_carton_selected_date", d.date);
+                              window.dispatchEvent(new CustomEvent("md_carton_date_change"));
+                            }
+                          }}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-50 hover:bg-blue-600 text-blue-700 hover:text-white font-bold text-xs border border-blue-200/80 transition-all shadow-2xs"
+                        >
+                          <span>Analysis</span>
+                        </Link>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="bg-slate-50/90 font-bold border-t-2 border-slate-200 text-slate-900 text-xs sm:text-sm">
+                    <td className="py-3 px-3 sm:px-4 font-extrabold text-slate-900">Weekly Total</td>
+                    <td className="text-center text-xs text-slate-500 font-semibold">{dailyData.length} Days</td>
+                    <td className="text-center text-blue-700 font-black">{weeklyTotalActual.toLocaleString()}</td>
+                    <td className="text-center text-slate-600">{weeklyTotalTarget.toLocaleString()}</td>
+                    <td className={`text-center font-black ${weeklyAchievementPercent >= 100 ? "text-emerald-600" : "text-amber-600"}`}>
+                      {weeklyAchievementPercent.toFixed(2)}%
+                    </td>
+                    <td className={`text-center font-black ${weeklyTeamAPerf >= 100 ? "text-emerald-600" : "text-amber-600"}`}>
+                      {weeklyTeamAPerf.toFixed(2)}%
+                    </td>
+                    <td className={`text-center font-black ${weeklyTeamBPerf >= 100 ? "text-emerald-600" : "text-amber-600"}`}>
+                      {weeklyTeamBPerf.toFixed(2)}%
+                    </td>
+                    <td className="text-center text-xs text-slate-400">—</td>
+                  </tr>
+                </tfoot>
+              </table>
             </div>
           </div>
         </>
