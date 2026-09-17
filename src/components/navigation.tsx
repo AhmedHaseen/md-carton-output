@@ -258,8 +258,10 @@ export default function Navigation() {
                 : pathname.startsWith(item.href);
             const Icon = item.icon;
             const targetHref =
-              activeDate && (item.href === "/" || item.href === "/daily-analysis" || item.href === "/reports" || item.href === "/targets")
-                ? `${item.href === "/" ? "" : item.href}/?date=${activeDate}`.replace("//", "/")
+              item.href === "/"
+                ? "/"
+                : activeDate && (item.href === "/daily-analysis" || item.href === "/reports" || item.href === "/targets")
+                ? `${item.href}/?date=${activeDate}`
                 : item.href;
 
             return (
@@ -319,7 +321,12 @@ export default function Navigation() {
 
           <button
             className="flex items-center justify-center gap-2.5 w-full py-2.5 px-4 rounded-xl text-red-400 hover:bg-red-500/10 hover:text-red-300 transition-colors text-sm font-medium border border-red-500/20 active:scale-98 min-h-[44px] cursor-pointer"
-            onClick={() => signOut({ callbackUrl: "/login" })}
+            onClick={() => {
+              if (typeof window !== "undefined") {
+                localStorage.removeItem("md_carton_selected_date");
+              }
+              signOut({ callbackUrl: "/login" });
+            }}
             id="signout-btn"
           >
             <LogOut size={18} />

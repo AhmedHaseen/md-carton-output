@@ -59,27 +59,33 @@ function HomeContent() {
     if (urlDate && /^\d{4}-\d{2}-\d{2}$/.test(urlDate)) {
       return urlDate;
     }
-    if (typeof window !== "undefined") {
-      const stored = localStorage.getItem("md_carton_selected_date");
-      if (stored && /^\d{4}-\d{2}-\d{2}$/.test(stored)) {
-        return stored;
-      }
-    }
     return format(new Date(), "yyyy-MM-dd");
   });
 
   // Sync if URL query parameter changes externally
   useEffect(() => {
     const urlDate = searchParams.get("date");
-    if (urlDate && /^\d{4}-\d{2}-\d{2}$/.test(urlDate) && urlDate !== selectedDate) {
-      setSelectedDate(urlDate);
-      setWorkDay(null);
-      setExists(false);
-      if (typeof window !== "undefined") {
-        localStorage.setItem("md_carton_selected_date", urlDate);
+    if (urlDate && /^\d{4}-\d{2}-\d{2}$/.test(urlDate)) {
+      if (urlDate !== selectedDate) {
+        setSelectedDate(urlDate);
+        setWorkDay(null);
+        setExists(false);
+        if (typeof window !== "undefined") {
+          localStorage.setItem("md_carton_selected_date", urlDate);
+        }
+      }
+    } else if (!urlDate) {
+      const today = format(new Date(), "yyyy-MM-dd");
+      if (selectedDate !== today) {
+        setSelectedDate(today);
+        setWorkDay(null);
+        setExists(false);
+        if (typeof window !== "undefined") {
+          localStorage.removeItem("md_carton_selected_date");
+        }
       }
     }
-  }, [searchParams]);
+  }, [searchParams, selectedDate]);
 
   const handleDateChange = (newDate: string) => {
     setSelectedDate(newDate);

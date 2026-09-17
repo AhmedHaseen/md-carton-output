@@ -57,6 +57,9 @@ export default function LoginPage() {
           setError("Invalid username or password for this account.");
         }
       } else {
+        if (typeof window !== "undefined") {
+          localStorage.removeItem("md_carton_selected_date");
+        }
         router.push("/");
         router.refresh();
       }
