@@ -264,7 +264,7 @@ export default function Navigation() {
                 ? activeDate
                   ? `/?date=${activeDate}`
                   : "/"
-                : activeDate && (item.href === "/daily-analysis" || item.href === "/reports" || item.href === "/targets")
+                : activeDate && (item.href === "/daily-analysis" || item.href === "/weekly-analysis" || item.href === "/reports" || item.href === "/targets")
                 ? `${item.href}?date=${activeDate}`
                 : item.href;
 

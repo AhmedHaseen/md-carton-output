@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, Suspense } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { format, startOfWeek, endOfWeek, eachDayOfInterval, addWeeks, subWeeks } from "date-fns";
+import { format, startOfWeek, endOfWeek, eachDayOfInterval } from "date-fns";
 import toast from "react-hot-toast";
 import {
   Package,
@@ -11,8 +12,6 @@ import {
   Award,
   AlertTriangle,
   Calendar,
-  ChevronLeft,
-  ChevronRight,
   Sunrise,
   Moon,
   BarChart3,
@@ -20,6 +19,7 @@ import {
   Clock,
 } from "lucide-react";
 import KpiCard from "@/components/kpi-card";
+import WeekPicker from "@/components/week-picker";
 import {
   BarChart,
   Bar,
@@ -55,10 +55,52 @@ interface DayData {
   teamBPerf: number;
 }
 
-export default function WeeklyAnalysisPage() {
-  const [weekStart, setWeekStart] = useState(() =>
-    format(startOfWeek(new Date(), { weekStartsOn: 1 }), "yyyy-MM-dd")
-  );
+function WeeklyAnalysisContent() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+
+  const [weekStart, setWeekStart] = useState(() => {
+    const urlParam = searchParams.get("week") || searchParams.get("date");
+    if (urlParam && /^\d{4}-\d{2}-\d{2}$/.test(urlParam)) {
+      return format(
+        startOfWeek(new Date(urlParam + "T00:00:00"), { weekStartsOn: 1 }),
+        "yyyy-MM-dd"
+      );
+    }
+    if (typeof window !== "undefined") {
+      const stored = localStorage.getItem("md_carton_selected_date");
+      if (stored && /^\d{4}-\d{2}-\d{2}$/.test(stored)) {
+        return format(
+          startOfWeek(new Date(stored + "T00:00:00"), { weekStartsOn: 1 }),
+          "yyyy-MM-dd"
+        );
+      }
+    }
+    return format(startOfWeek(new Date(), { weekStartsOn: 1 }), "yyyy-MM-dd");
+  });
+
+  // Keep in sync if URL query parameter changes externally
+  useEffect(() => {
+    const urlParam = searchParams.get("week") || searchParams.get("date");
+    if (urlParam && /^\d{4}-\d{2}-\d{2}$/.test(urlParam)) {
+      const monday = format(
+        startOfWeek(new Date(urlParam + "T00:00:00"), { weekStartsOn: 1 }),
+        "yyyy-MM-dd"
+      );
+      if (monday !== weekStart) {
+        setWeekStart(monday);
+      }
+    }
+  }, [searchParams, weekStart]);
+
+  const handleWeekChange = (newWeekStart: string) => {
+    setWeekStart(newWeekStart);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("md_carton_selected_date", newWeekStart);
+      window.dispatchEvent(new CustomEvent("md_carton_date_change"));
+    }
+    router.replace(`?week=${newWeekStart}`, { scroll: false });
+  };
   const [dailyData, setDailyData] = useState<DayData[]>([]);
   const [loading, setLoading] = useState(false);
   const [shiftChartMode, setShiftChartMode] = useState<"team" | "time">("team");
@@ -233,22 +275,6 @@ export default function WeeklyAnalysisPage() {
   const weeklyTeamAVariance = weeklyTeamAActual - weeklyTeamATarget;
   const weeklyTeamBVariance = weeklyTeamBActual - weeklyTeamBTarget;
 
-  const handlePrevWeek = () => {
-    const prev = subWeeks(new Date(weekStart + "T00:00:00"), 1);
-    setWeekStart(format(startOfWeek(prev, { weekStartsOn: 1 }), "yyyy-MM-dd"));
-  };
-
-  const handleNextWeek = () => {
-    const next = addWeeks(new Date(weekStart + "T00:00:00"), 1);
-    setWeekStart(format(startOfWeek(next, { weekStartsOn: 1 }), "yyyy-MM-dd"));
-  };
-
-  const handleThisWeek = () => {
-    setWeekStart(
-      format(startOfWeek(new Date(), { weekStartsOn: 1 }), "yyyy-MM-dd")
-    );
-  };
-
   return (
     <div className="w-full pb-10">
       {/* Page Header */}
@@ -263,45 +289,12 @@ export default function WeeklyAnalysisPage() {
         </div>
       </div>
 
-      {/* Week Selector Bar (Mobile-friendly) */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6 bg-white p-3 sm:p-4 rounded-2xl border border-slate-200/90 shadow-xs">
-        <div className="flex items-center justify-between sm:justify-start gap-1 w-full sm:w-auto">
-          <button
-            onClick={handlePrevWeek}
-            className="w-11 h-11 flex items-center justify-center hover:bg-slate-100 rounded-xl transition-colors text-slate-600 active:scale-95 shrink-0"
-            title="Previous week"
-            aria-label="Previous week"
-          >
-            <ChevronLeft size={20} />
-          </button>
-
-          <span className="px-3 py-2 text-xs sm:text-sm font-bold text-slate-800 text-center flex-1 sm:flex-initial sm:min-w-[220px]">
-            {format(new Date(weekStart + "T00:00:00"), "MMM d")} –{" "}
-            {format(new Date(weekEnd + "T00:00:00"), "MMM d, yyyy")}
-          </span>
-
-          <button
-            onClick={handleNextWeek}
-            className="w-11 h-11 flex items-center justify-center hover:bg-slate-100 rounded-xl transition-colors text-slate-600 active:scale-95 shrink-0"
-            title="Next week"
-            aria-label="Next week"
-          >
-            <ChevronRight size={20} />
-          </button>
-        </div>
-
-        <div className="flex items-center justify-between sm:justify-end gap-3 w-full sm:w-auto border-t sm:border-t-0 pt-2 sm:pt-0">
-          <button
-            onClick={handleThisWeek}
-            className="h-10 px-4 text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-xl transition-colors"
-          >
-            Current Week
-          </button>
-          <span className="text-xs font-semibold text-slate-500">
-            {workingDays} recorded day{workingDays !== 1 ? "s" : ""}
-          </span>
-        </div>
-      </div>
+      {/* Week Selector Bar with Range Selection, Stepper & Quick Dropdown */}
+      <WeekPicker
+        weekStart={weekStart}
+        onWeekChange={handleWeekChange}
+        workingDays={workingDays}
+      />
 
       {loading && (
         <div className="flex items-center justify-center py-24">
@@ -888,6 +881,7 @@ export default function WeeklyAnalysisPage() {
                             onClick={() => {
                               if (typeof window !== "undefined") {
                                 localStorage.setItem("md_carton_selected_date", d.date);
+                                window.dispatchEvent(new CustomEvent("md_carton_date_change"));
                               }
                             }}
                             className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-[11px] border border-blue-200/80 transition-colors shadow-2xs"
@@ -905,5 +899,22 @@ export default function WeeklyAnalysisPage() {
         </>
       )}
     </div>
+  );
+}
+
+export default function WeeklyAnalysisPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center py-24">
+          <div className="flex flex-col items-center gap-3">
+            <div className="w-10 h-10 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin" />
+            <p className="text-xs sm:text-sm text-slate-500 font-medium">Loading weekly analysis...</p>
+          </div>
+        </div>
+      }
+    >
+      <WeeklyAnalysisContent />
+    </Suspense>
   );
 }
