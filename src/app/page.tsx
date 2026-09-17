@@ -480,7 +480,7 @@ function HomeContent() {
                       ? "Evening Perf. Rate"
                       : "Performance Rate"
                   }
-                  value={`${activeKpis.performanceRate.toFixed(1)}%`}
+                  value={`${activeKpis.performanceRate.toFixed(2)}%`}
                   subtitle={
                     activeKpis.completedTarget > 0
                       ? `${activeTeam ? `Shift ${activeTeam} • ` : ""}${activeKpis.totalActual} / ${activeKpis.completedTarget} target`
