@@ -531,19 +531,13 @@ export default function DailyOutputTable({
             >
               {/* Card Header: Slot Sequence, Time & Status */}
               <div className="flex items-center justify-between gap-2 mb-2 pb-2 border-b border-slate-100">
-                <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex items-center gap-2">
                   <span className="w-5 h-5 rounded-md bg-slate-100 text-slate-600 font-mono text-xs flex items-center justify-center font-bold">
                     {entry.sequenceNo}
                   </span>
                   <span className="font-bold text-slate-800 text-sm">
                     {formatTimeRange(entry.startTime, entry.endTime)}
                   </span>
-                  {lockInfo.inGracePeriod && (
-                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-extrabold bg-amber-50 text-amber-700 border border-amber-200/90 shadow-2xs">
-                      <Clock size={10} className="text-amber-600 animate-pulse" />
-                      <span>Closes in {formatRemainingTime(lockInfo.minutesRemaining)}</span>
-                    </span>
-                  )}
                 </div>
                 <div>{getStatusBadge(entry.status)}</div>
               </div>
@@ -768,14 +762,8 @@ export default function DailyOutputTable({
                         {entry.sequenceNo}
                       </span>
                       <div>
-                        <div className="font-semibold text-slate-800 text-sm flex items-center gap-2">
-                          <span>{formatTimeRange(entry.startTime, entry.endTime)}</span>
-                          {lockInfo.inGracePeriod && (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-amber-50 text-amber-700 border border-amber-200/90 shadow-2xs">
-                              <Clock size={11} className="text-amber-600 animate-pulse" />
-                              <span>Closes in {formatRemainingTime(lockInfo.minutesRemaining)}</span>
-                            </span>
-                          )}
+                        <div className="font-semibold text-slate-800 text-sm">
+                          {formatTimeRange(entry.startTime, entry.endTime)}
                         </div>
                         {breakInfo && (
                           <span className="inline-flex items-center gap-1 text-[11px] text-amber-700 font-medium">
