@@ -18,6 +18,11 @@ export const metadata: Metadata = {
   title: "MD Carton Output System",
   description:
     "Digital system for tracking hourly Metal Detector carton output in the Finished Good Warehouse",
+  icons: {
+    icon: "/icon.svg",
+    shortcut: "/icon.svg",
+    apple: "/icon.svg",
+  },
 };
 
 export const viewport: Viewport = {
