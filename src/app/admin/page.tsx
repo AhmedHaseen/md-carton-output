@@ -24,6 +24,8 @@ import {
   Calendar,
   CheckCircle2,
   Sliders,
+  Lock,
+  Clock,
 } from "lucide-react";
 
 interface AuditLog {
@@ -66,7 +68,9 @@ export default function AdminPage() {
 
   // System Settings state
   const [showOverrideBadge, setShowOverrideBadge] = useState<boolean>(true);
+  const [enforce30MinLock, setEnforce30MinLock] = useState<boolean>(true);
   const [updatingSetting, setUpdatingSetting] = useState<boolean>(false);
+  const [updatingLockSetting, setUpdatingLockSetting] = useState<boolean>(false);
 
   // Shift Rotation Settings state
   const [schedules, setSchedules] = useState<ShiftSchedule[]>([]);
@@ -118,8 +122,13 @@ export default function AdminPage() {
     try {
       const res = await fetch("/api/admin?type=settings");
       const data = await res.json();
-      if (data?.settings && typeof data.settings.showOverrideBadge === "boolean") {
-        setShowOverrideBadge(data.settings.showOverrideBadge);
+      if (data?.settings) {
+        if (typeof data.settings.showOverrideBadge === "boolean") {
+          setShowOverrideBadge(data.settings.showOverrideBadge);
+        }
+        if (typeof data.settings.enforce30MinLock === "boolean") {
+          setEnforce30MinLock(data.settings.enforce30MinLock);
+        }
       }
     } catch {
       toast.error("Failed to load settings");
@@ -155,6 +164,36 @@ export default function AdminPage() {
       toast.error("Network error updating setting");
     } finally {
       setUpdatingSetting(false);
+    }
+  };
+
+  const handleToggleLockSetting = async (newValue: boolean) => {
+    setUpdatingLockSetting(true);
+    try {
+      const res = await fetch("/api/admin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "UPDATE_SETTING",
+          key: "ENFORCE_30MIN_LOCK",
+          value: String(newValue),
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setEnforce30MinLock(newValue);
+        toast.success(
+          newValue
+            ? "30-Minute Entry Lock is now ENFORCED (operators must submit within 30m of slot end)"
+            : "30-Minute Entry Lock is now DISABLED (operators can enter output anytime)"
+        );
+      } else {
+        toast.error(data.error || "Failed to update setting");
+      }
+    } catch {
+      toast.error("Network error updating setting");
+    } finally {
+      setUpdatingLockSetting(false);
     }
   };
 
@@ -874,6 +913,84 @@ export default function AdminPage() {
                       {showOverrideBadge ? "Hide Override Badge" : "Show Override Badge"}
                     </button>
                   </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Setting Card: 30-Minute Entry Lock Window Toggle */}
+          <div className="bg-white rounded-2xl p-5 sm:p-6 border border-slate-200/90 shadow-sm mt-5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-slate-100">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h4 className="font-extrabold text-slate-900 text-base sm:text-lg">
+                    30-Minute Output Entry Lock Window
+                  </h4>
+                  <span
+                    className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-black uppercase tracking-wider ${
+                      enforce30MinLock
+                        ? "bg-emerald-100 text-emerald-800"
+                        : "bg-slate-100 text-slate-600"
+                    }`}
+                  >
+                    {enforce30MinLock ? "Enforced (Active)" : "Disabled (Open Access)"}
+                  </span>
+                </div>
+                <p className="text-xs sm:text-sm text-slate-500 max-w-xl">
+                  Require carton counts for each hourly slot to be submitted within <strong>30 minutes</strong> of slot completion. After 30 minutes, slots automatically lock to prevent back-dated alterations. Admins and Managers retain override access to update any slot.
+                </p>
+              </div>
+
+              {/* Interactive Toggle Switch */}
+              <div className="flex items-center gap-3 shrink-0">
+                <button
+                  type="button"
+                  id="toggle-lock-window-btn"
+                  onClick={() => handleToggleLockSetting(!enforce30MinLock)}
+                  disabled={updatingLockSetting}
+                  className={`relative inline-flex h-8 w-16 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                    enforce30MinLock ? "bg-emerald-600" : "bg-slate-300"
+                  } ${updatingLockSetting ? "opacity-60 cursor-wait" : ""}`}
+                  role="switch"
+                  aria-checked={enforce30MinLock}
+                >
+                  <span
+                    aria-hidden="true"
+                    className={`pointer-events-none inline-block h-7 w-7 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                      enforce30MinLock ? "translate-x-8" : "translate-x-0"
+                    }`}
+                  />
+                </button>
+                <span className="text-xs font-bold text-slate-700 min-w-[65px]">
+                  {updatingLockSetting ? "Saving..." : enforce30MinLock ? "Enforced" : "Disabled"}
+                </span>
+              </div>
+            </div>
+
+            {/* Informational Guidance Box */}
+            <div className="mt-5 pt-1">
+              <h5 className="text-xs font-bold text-slate-600 uppercase tracking-wider mb-3">
+                Operator Experience & Safeguards
+              </h5>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/50">
+                  <div className="flex items-center gap-2 mb-1.5 text-slate-800 font-bold text-xs">
+                    <Clock size={15} className="text-blue-600" />
+                    <span>Countdown Timer for Active Slots</span>
+                  </div>
+                  <p className="text-xs text-slate-600 leading-relaxed">
+                    When a slot ends (e.g. at 06:30), operators see a live countdown badge: <strong>&ldquo;Closes in 28m&rdquo;</strong>, giving them a clear visual deadline to log the carton count before it locks at 07:00.
+                  </p>
+                </div>
+
+                <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/50">
+                  <div className="flex items-center gap-2 mb-1.5 text-slate-800 font-bold text-xs">
+                    <Lock size={15} className="text-amber-600" />
+                    <span>Admin & Manager Override</span>
+                  </div>
+                  <p className="text-xs text-slate-600 leading-relaxed">
+                    If an input is delayed due to network failure, machine stoppage, or supervisor review, Admins and Managers can edit locked slots at any time. The system transparently logs each override in the audit log.
+                  </p>
                 </div>
               </div>
             </div>

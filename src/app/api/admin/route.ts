@@ -32,6 +32,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({
         settings: {
           showOverrideBadge: settingsMap["SHOW_OVERRIDE_BADGE"] !== "false",
+          enforce30MinLock: settingsMap["ENFORCE_30MIN_LOCK"] !== "false",
         },
         raw: settingsMap,
       });
@@ -144,10 +145,21 @@ export async function POST(request: NextRequest) {
         },
       });
 
+      const allSettings = await prisma.systemSetting.findMany();
+      const settingsMap: Record<string, string> = {};
+      for (const s of allSettings) {
+        settingsMap[s.key] = s.value;
+      }
+
       return NextResponse.json({
         success: true,
         setting,
-        showOverrideBadge: stringValue !== "false",
+        settings: {
+          showOverrideBadge: settingsMap["SHOW_OVERRIDE_BADGE"] !== "false",
+          enforce30MinLock: settingsMap["ENFORCE_30MIN_LOCK"] !== "false",
+        },
+        showOverrideBadge: settingsMap["SHOW_OVERRIDE_BADGE"] !== "false",
+        enforce30MinLock: settingsMap["ENFORCE_30MIN_LOCK"] !== "false",
       });
     }
 

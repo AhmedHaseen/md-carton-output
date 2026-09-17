@@ -13,6 +13,7 @@ import {
   Edit3,
   Users,
   Settings,
+  Lock,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { formatTimeRange } from "@/lib/calculations";
@@ -23,6 +24,7 @@ interface DailyOutputTableProps {
   shift: "MORNING" | "EVENING";
   shiftLabel: string;
   dayStatus: "OPEN" | "CLOSED";
+  workDate?: string;
   team?: string | null;
   counterpartTeam?: string | null;
   onAssignTeam?: (shift: "MORNING" | "EVENING", team: "A" | "B") => Promise<void>;
@@ -30,6 +32,7 @@ interface DailyOutputTableProps {
   canEdit: boolean;
   userRole?: string;
   showOverrideBadge?: boolean;
+  enforce30MinLock?: boolean;
 }
 
 function getStatusBadge(status: SlotWithCalculations["status"]) {
@@ -78,6 +81,7 @@ export default function DailyOutputTable({
   shift,
   shiftLabel,
   dayStatus,
+  workDate,
   team,
   counterpartTeam,
   onAssignTeam,
@@ -85,6 +89,7 @@ export default function DailyOutputTable({
   canEdit,
   userRole,
   showOverrideBadge = true,
+  enforce30MinLock = true,
 }: DailyOutputTableProps) {
   const isAdminOrManager = userRole === "ADMIN" || userRole === "MANAGER";
 
@@ -150,17 +155,63 @@ export default function DailyOutputTable({
   const shiftEntries = entries.filter((e) => e.shift === shift);
   const isOpen = dayStatus === "OPEN";
 
+  // Helper to determine if a slot has exceeded the 30-minute lock window
+  const getSlotLockInfo = useCallback(
+    (entry: SlotWithCalculations) => {
+      if (!enforce30MinLock || !workDate) {
+        return { isLocked: false, inGracePeriod: false, isFuture: false };
+      }
+
+      const now = new Date();
+      const slotStart = new Date(`${workDate}T${entry.startTime}:00`);
+      const slotEnd = new Date(`${workDate}T${entry.endTime}:00`);
+      const cutoff = new Date(slotEnd.getTime() + 30 * 60 * 1000);
+
+      // Slot end + 30 min cutoff has passed
+      if (now > cutoff) {
+        return { isLocked: true, inGracePeriod: false, isFuture: false };
+      }
+
+      // Slot end has passed, but still within 30-min window
+      if (now >= slotEnd && now <= cutoff) {
+        const minsRemaining = Math.max(
+          1,
+          Math.ceil((cutoff.getTime() - now.getTime()) / (60 * 1000))
+        );
+        return {
+          isLocked: false,
+          inGracePeriod: true,
+          minutesRemaining: minsRemaining,
+          isFuture: false,
+        };
+      }
+
+      // Slot hasn't started yet
+      if (now < slotStart) {
+        return { isLocked: false, inGracePeriod: false, isFuture: true };
+      }
+
+      return { isLocked: false, inGracePeriod: false, isFuture: false };
+    },
+    [enforce30MinLock, workDate]
+  );
+
   const handleEdit = useCallback(
     (entry: SlotWithCalculations) => {
       if (!team) {
         toast.error("Please enter and set Shift Name (Shift A or Shift B) first to log output");
         return;
       }
+      const lockInfo = getSlotLockInfo(entry);
+      if (lockInfo.isLocked && !isAdminOrManager) {
+        toast.error("This slot is locked. Hourly updates must be submitted within 30 minutes of slot completion.");
+        return;
+      }
       setEditingId(entry.id);
       setEditValue(entry.actualCartons?.toString() ?? "");
       setError(null);
     },
-    [team]
+    [team, getSlotLockInfo, isAdminOrManager]
   );
 
   const handleCancel = useCallback(() => {
@@ -548,32 +599,89 @@ export default function DailyOutputTable({
                       )}
                     </div>
                   ) : entry.actualCartons === null ? (
-                    canEdit && isOpen ? (
-                      <button
-                        onClick={() => handleEdit(entry)}
-                        className="inline-flex items-center justify-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white rounded-xl text-xs font-bold transition-all shadow-sm shadow-blue-600/25 min-h-[40px] cursor-pointer"
-                      >
-                        <Plus size={16} />
-                        <span>Add Output</span>
-                      </button>
-                    ) : (
-                      <span className="text-slate-300 font-medium text-base">—</span>
-                    )
+                    /* If no count entered yet */
+                    (() => {
+                      const lockInfo = getSlotLockInfo(entry);
+                      if (lockInfo.isLocked && !isAdminOrManager) {
+                        return (
+                          <span
+                            className="inline-flex items-center gap-1 px-3 py-1.5 bg-slate-100 border border-slate-200/80 rounded-xl text-xs font-semibold text-slate-400 select-none"
+                            title="Cutoff expired: Must be filled within 30 minutes of slot completion"
+                          >
+                            <Lock size={12} className="text-slate-400" />
+                            <span>Locked</span>
+                          </span>
+                        );
+                      }
+                      if (canEdit && isOpen) {
+                        return (
+                          <div className="flex flex-col items-end gap-1">
+                            <button
+                              onClick={() => handleEdit(entry)}
+                              className="inline-flex items-center justify-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white rounded-xl text-xs font-bold transition-all shadow-sm shadow-blue-600/25 min-h-[40px] cursor-pointer"
+                            >
+                              <Plus size={16} />
+                              <span>Add Output</span>
+                            </button>
+                            {lockInfo.isLocked && isAdminOrManager && (
+                              <span className="text-[10px] font-bold text-red-600 bg-red-50 border border-red-200/60 px-1.5 py-0.5 rounded-md flex items-center gap-1">
+                                <Lock size={10} />
+                                <span>Admin Override</span>
+                              </span>
+                            )}
+                            {lockInfo.inGracePeriod && (
+                              <span className="text-[10px] font-bold text-amber-700 bg-amber-100/80 border border-amber-200/80 px-1.5 py-0.5 rounded-md flex items-center gap-1">
+                                <Clock size={10} />
+                                <span>Closes in {lockInfo.minutesRemaining}m</span>
+                              </span>
+                            )}
+                          </div>
+                        );
+                      }
+                      return <span className="text-slate-300 font-medium text-base">—</span>;
+                    })()
                   ) : (
-                    <div className="inline-flex items-center gap-2">
-                      <span className="font-extrabold text-xl text-slate-900">
-                        {entry.actualCartons}
-                      </span>
-                      {canEdit && isOpen && (
-                        <button
-                          onClick={() => handleEdit(entry)}
-                          className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors cursor-pointer"
-                          title="Edit actual count"
-                        >
-                          <Edit3 size={15} />
-                        </button>
-                      )}
-                    </div>
+                    /* If actual count already exists */
+                    (() => {
+                      const lockInfo = getSlotLockInfo(entry);
+                      const isLockedForOperator = lockInfo.isLocked && !isAdminOrManager;
+
+                      return (
+                        <div className="flex flex-col items-end gap-1">
+                          <div className="inline-flex items-center gap-2">
+                            <span className="font-extrabold text-xl text-slate-900">
+                              {entry.actualCartons}
+                            </span>
+                            {canEdit && isOpen && !isLockedForOperator && (
+                              <button
+                                onClick={() => handleEdit(entry)}
+                                className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors cursor-pointer"
+                                title={lockInfo.isLocked ? "Admin Override Edit" : "Edit actual count"}
+                              >
+                                <Edit3 size={15} />
+                              </button>
+                            )}
+                            {isLockedForOperator && (
+                              <span title="Locked: 30-minute window closed" className="text-slate-300">
+                                <Lock size={14} />
+                              </span>
+                            )}
+                          </div>
+                          {lockInfo.isLocked && isAdminOrManager && (
+                            <span className="text-[9px] font-bold text-red-600 bg-red-50 border border-red-200/60 px-1.5 py-0.5 rounded-md flex items-center gap-1">
+                              <Lock size={9} />
+                              <span>Override</span>
+                            </span>
+                          )}
+                          {lockInfo.inGracePeriod && (
+                            <span className="text-[10px] font-bold text-amber-700 bg-amber-100/80 border border-amber-200/80 px-1.5 py-0.5 rounded-md flex items-center gap-1">
+                              <Clock size={10} />
+                              <span>Closes in {lockInfo.minutesRemaining}m</span>
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })()
                   )}
                 </div>
               </div>
@@ -708,33 +816,96 @@ export default function DailyOutputTable({
                       </div>
                     ) : entry.actualCartons === null ? (
                       /* If no actual count: prominent Add button */
-                      canEdit && isOpen ? (
-                        <button
-                          onClick={() => handleEdit(entry)}
-                          className="inline-flex items-center gap-1.5 px-4 py-1.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white rounded-xl text-xs font-bold transition-all shadow-sm shadow-blue-600/20 cursor-pointer"
-                        >
-                          <Plus size={14} />
-                          <span>Add</span>
-                        </button>
-                      ) : (
-                        <span className="text-slate-300 font-medium">—</span>
-                      )
+                      (() => {
+                        const lockInfo = getSlotLockInfo(entry);
+                        if (lockInfo.isLocked && !isAdminOrManager) {
+                          return (
+                            <span
+                              className="inline-flex items-center gap-1.5 px-3 py-1 bg-slate-100 border border-slate-200/80 rounded-xl text-xs font-semibold text-slate-400 select-none"
+                              title="Update window expired: Must be filled within 30 minutes of slot end time"
+                            >
+                              <Lock size={12} className="text-slate-400" />
+                              <span>Locked</span>
+                            </span>
+                          );
+                        }
+                        if (canEdit && isOpen) {
+                          return (
+                            <div className="flex flex-col items-center gap-1 py-1">
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  onClick={() => handleEdit(entry)}
+                                  className="inline-flex items-center gap-1.5 px-4 py-1.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white rounded-xl text-xs font-bold transition-all shadow-sm shadow-blue-600/20 cursor-pointer"
+                                >
+                                  <Plus size={14} />
+                                  <span>Add</span>
+                                </button>
+                                {lockInfo.isLocked && isAdminOrManager && (
+                                  <span
+                                    className="text-[10px] font-bold text-red-600 bg-red-50 border border-red-200/80 px-1.5 py-0.5 rounded-md flex items-center gap-0.5"
+                                    title="Locked for operators - Admin override permitted"
+                                  >
+                                    <Lock size={9} />
+                                    <span>Override</span>
+                                  </span>
+                                )}
+                              </div>
+                              {lockInfo.inGracePeriod && (
+                                <span className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200/80 px-1.5 py-0.5 rounded-md inline-flex items-center gap-1">
+                                  <Clock size={10} className="text-amber-600" />
+                                  <span>Closes in {lockInfo.minutesRemaining}m</span>
+                                </span>
+                              )}
+                            </div>
+                          );
+                        }
+                        return <span className="text-slate-300 font-medium">—</span>;
+                      })()
                     ) : (
                       /* If actual count exists: show number with quick edit button */
-                      <div className="inline-flex items-center justify-center gap-2">
-                        <span className="font-extrabold text-base text-slate-800">
-                          {entry.actualCartons}
-                        </span>
-                        {canEdit && isOpen && (
-                          <button
-                            onClick={() => handleEdit(entry)}
-                            className="p-1 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
-                            title="Edit actual count"
-                          >
-                            <Edit3 size={14} />
-                          </button>
-                        )}
-                      </div>
+                      (() => {
+                        const lockInfo = getSlotLockInfo(entry);
+                        const isLockedForOperator = lockInfo.isLocked && !isAdminOrManager;
+
+                        return (
+                          <div className="flex flex-col items-center gap-1 py-1">
+                            <div className="inline-flex items-center justify-center gap-2">
+                              <span className="font-extrabold text-base text-slate-800">
+                                {entry.actualCartons}
+                              </span>
+                              {canEdit && isOpen && !isLockedForOperator && (
+                                <button
+                                  onClick={() => handleEdit(entry)}
+                                  className="p-1 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors cursor-pointer"
+                                  title={lockInfo.isLocked ? "Admin Override Edit" : "Edit actual count"}
+                                >
+                                  <Edit3 size={14} />
+                                </button>
+                              )}
+                              {isLockedForOperator && (
+                                <span title="Locked: 30-minute window closed" className="text-slate-300">
+                                  <Lock size={13} />
+                                </span>
+                              )}
+                              {lockInfo.isLocked && isAdminOrManager && (
+                                <span
+                                  className="text-[9px] font-bold text-red-600 bg-red-50 border border-red-200/80 px-1 py-0.5 rounded-md flex items-center gap-0.5"
+                                  title="Admin override active"
+                                >
+                                  <Lock size={8} />
+                                  <span>Override</span>
+                                </span>
+                              )}
+                            </div>
+                            {lockInfo.inGracePeriod && (
+                              <span className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200/80 px-1.5 py-0.5 rounded-md inline-flex items-center gap-1">
+                                <Clock size={10} className="text-amber-600" />
+                                <span>Closes in {lockInfo.minutesRemaining}m</span>
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })()
                     )}
                   </td>
 

@@ -126,6 +126,7 @@ function HomeContent() {
     weekRange?: string;
   } | null>(null);
   const [showOverrideBadge, setShowOverrideBadge] = useState<boolean>(true);
+  const [enforce30MinLock, setEnforce30MinLock] = useState<boolean>(true);
 
   // Fetch work day data
   const fetchWorkDay = useCallback(async (date: string) => {
@@ -135,8 +136,13 @@ function HomeContent() {
         cache: "no-store",
       });
       const data = await res.json();
-      if (data && data.settings && typeof data.settings.showOverrideBadge === "boolean") {
-        setShowOverrideBadge(data.settings.showOverrideBadge);
+      if (data && data.settings) {
+        if (typeof data.settings.showOverrideBadge === "boolean") {
+          setShowOverrideBadge(data.settings.showOverrideBadge);
+        }
+        if (typeof data.settings.enforce30MinLock === "boolean") {
+          setEnforce30MinLock(data.settings.enforce30MinLock);
+        }
       }
       if (data && data.defaultDuty) {
         setDefaultDuty(data.defaultDuty);
@@ -599,6 +605,7 @@ function HomeContent() {
               shift="MORNING"
               shiftLabel="Morning Shift (5:30 AM – 1:30 PM)"
               dayStatus={workDay.status}
+              workDate={selectedDate}
               team={workDay.morningTeam ?? null}
               counterpartTeam={workDay.eveningTeam ?? null}
               onAssignTeam={handleAssignTeam}
@@ -606,6 +613,7 @@ function HomeContent() {
               canEdit={true}
               userRole={session?.user?.role}
               showOverrideBadge={showOverrideBadge}
+              enforce30MinLock={enforce30MinLock}
             />
           )}
 
@@ -616,6 +624,7 @@ function HomeContent() {
               shift="EVENING"
               shiftLabel="Evening Shift (1:30 PM – 9:30 PM)"
               dayStatus={workDay.status}
+              workDate={selectedDate}
               team={workDay.eveningTeam ?? null}
               counterpartTeam={workDay.morningTeam ?? null}
               onAssignTeam={handleAssignTeam}
@@ -623,6 +632,7 @@ function HomeContent() {
               canEdit={true}
               userRole={session?.user?.role}
               showOverrideBadge={showOverrideBadge}
+              enforce30MinLock={enforce30MinLock}
             />
           )}
 

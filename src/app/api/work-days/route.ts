@@ -47,20 +47,26 @@ export async function GET(request: NextRequest) {
 
     // Fetch system settings
     let showOverrideBadge = true;
+    let enforce30MinLock = true;
     try {
-      const setting = await prisma.systemSetting.findUnique({
-        where: { key: "SHOW_OVERRIDE_BADGE" },
+      const settings = await prisma.systemSetting.findMany({
+        where: { key: { in: ["SHOW_OVERRIDE_BADGE", "ENFORCE_30MIN_LOCK"] } },
       });
-      if (setting && setting.value === "false") {
-        showOverrideBadge = false;
+      for (const s of settings) {
+        if (s.key === "SHOW_OVERRIDE_BADGE" && s.value === "false") {
+          showOverrideBadge = false;
+        }
+        if (s.key === "ENFORCE_30MIN_LOCK" && s.value === "false") {
+          enforce30MinLock = false;
+        }
       }
     } catch {
-      // fallback to true
+      // fallback to defaults
     }
 
     if (!workDay) {
       return NextResponse.json(
-        { workDay: null, exists: false, defaultDuty, settings: { showOverrideBadge } },
+        { workDay: null, exists: false, defaultDuty, settings: { showOverrideBadge, enforce30MinLock } },
         { headers }
       );
     }
@@ -83,7 +89,7 @@ export async function GET(request: NextRequest) {
     }
 
     return NextResponse.json(
-      { workDay, exists: true, defaultDuty, settings: { showOverrideBadge } },
+      { workDay, exists: true, defaultDuty, settings: { showOverrideBadge, enforce30MinLock } },
       { headers }
     );
   } catch (error) {

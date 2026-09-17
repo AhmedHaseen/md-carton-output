@@ -4,10 +4,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { validateCartonCount } from "@/lib/validation";
+import { auth } from "@/lib/auth";
 
 // PATCH /api/output-entries  { entryId, actualCartons, userId? }
 export async function PATCH(request: NextRequest) {
   try {
+    const session = await auth();
+    const userRole = session?.user?.role;
+    const isAdminOrManager = userRole === "ADMIN" || userRole === "MANAGER";
+
     const body = await request.json();
     const { entryId, actualCartons, userId } = body;
 
@@ -18,10 +23,10 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
-    // Find the entry and check if day is open
+    // Find the entry with workDay and timeSlot
     const entry = await prisma.mdOutputEntry.findUnique({
       where: { id: entryId },
-      include: { workDay: true },
+      include: { workDay: true, timeSlot: true },
     });
 
     if (!entry) {
@@ -36,6 +41,38 @@ export async function PATCH(request: NextRequest) {
         { error: "This day is closed. No edits allowed." },
         { status: 403 }
       );
+    }
+
+    // ─── 30-Minute Entry Lock Window Enforcement ───────────────────
+    if (!isAdminOrManager) {
+      let enforce30MinLock = true;
+      try {
+        const lockSetting = await prisma.systemSetting.findUnique({
+          where: { key: "ENFORCE_30MIN_LOCK" },
+        });
+        if (lockSetting && lockSetting.value === "false") {
+          enforce30MinLock = false;
+        }
+      } catch {
+        // fallback to true
+      }
+
+      if (enforce30MinLock) {
+        const workDateStr = entry.workDay.workDate.toISOString().split("T")[0];
+        const slotEnd = new Date(`${workDateStr}T${entry.timeSlot.endTime}:00`);
+        const cutoff = new Date(slotEnd.getTime() + 30 * 60 * 1000);
+        const now = new Date();
+
+        if (now > cutoff) {
+          return NextResponse.json(
+            {
+              error: `Update window closed: carton output must be submitted within 30 minutes of slot completion (closed at ${entry.timeSlot.endTime} + 30m). Please contact an Admin or Manager for assistance.`,
+              isLocked: true,
+            },
+            { status: 403 }
+          );
+        }
+      }
     }
 
     // Validate the carton count (allow null to clear)
@@ -58,7 +95,7 @@ export async function PATCH(request: NextRequest) {
         where: { id: entryId },
         data: {
           actualCartons: cartonValue !== null ? Number(cartonValue) : null,
-          enteredBy: userId || null,
+          enteredBy: session?.user?.id || userId || null,
           enteredAt: new Date(),
         },
         include: { timeSlot: true },
@@ -67,7 +104,7 @@ export async function PATCH(request: NextRequest) {
       // Audit log
       await tx.auditLog.create({
         data: {
-          userId: userId || null,
+          userId: session?.user?.id || userId || null,
           action: oldValue === null ? "CREATE" : "UPDATE",
           entityType: "MdOutputEntry",
           entityId: entryId,
