@@ -1,8 +1,11 @@
 // Middleware for route protection and role-based access control
 // Only Admin and Manager users can access /admin and /targets
 
-import { auth } from "@/lib/auth";
+import NextAuth from "next-auth";
+import { authConfig } from "@/lib/auth.config";
 import { NextResponse } from "next/server";
+
+const { auth } = NextAuth(authConfig);
 
 export default auth((req) => {
   const { nextUrl } = req;
