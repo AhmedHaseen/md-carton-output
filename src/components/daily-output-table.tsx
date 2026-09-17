@@ -605,10 +605,10 @@ export default function DailyOutputTable({
                       if (lockInfo.isLocked && !isAdminOrManager) {
                         return (
                           <span
-                            className="inline-flex items-center gap-1 px-3 py-1.5 bg-slate-100 border border-slate-200/80 rounded-xl text-xs font-semibold text-slate-400 select-none"
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-red-50 border border-red-200 text-red-600 font-extrabold text-xs rounded-xl shadow-2xs select-none"
                             title="Cutoff expired: Must be filled within 30 minutes of slot completion"
                           >
-                            <Lock size={12} className="text-slate-400" />
+                            <Lock size={13} className="text-red-600 shrink-0" />
                             <span>Locked</span>
                           </span>
                         );
@@ -655,15 +655,20 @@ export default function DailyOutputTable({
                             {canEdit && isOpen && !isLockedForOperator && (
                               <button
                                 onClick={() => handleEdit(entry)}
-                                className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors cursor-pointer"
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-50 hover:bg-blue-600 text-blue-700 hover:text-white border border-blue-200/90 font-bold text-xs transition-all shadow-2xs active:scale-95 cursor-pointer group"
                                 title={lockInfo.isLocked ? "Admin Override Edit" : "Edit actual count"}
                               >
-                                <Edit3 size={15} />
+                                <Edit3 size={13} className="text-blue-600 group-hover:text-white transition-colors" />
+                                <span>Edit</span>
                               </button>
                             )}
                             {isLockedForOperator && (
-                              <span title="Locked: 30-minute window closed" className="text-slate-300">
-                                <Lock size={14} />
+                              <span
+                                title="Locked: 30-minute window closed"
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-red-50 border border-red-200 text-red-600 font-bold text-[11px] shadow-2xs select-none"
+                              >
+                                <Lock size={12} className="text-red-600 shrink-0" />
+                                <span>Locked</span>
                               </span>
                             )}
                           </div>
@@ -821,10 +826,10 @@ export default function DailyOutputTable({
                         if (lockInfo.isLocked && !isAdminOrManager) {
                           return (
                             <span
-                              className="inline-flex items-center gap-1.5 px-3 py-1 bg-slate-100 border border-slate-200/80 rounded-xl text-xs font-semibold text-slate-400 select-none"
+                              className="inline-flex items-center gap-1.5 px-3 py-1 bg-red-50 border border-red-200 text-red-600 font-extrabold text-xs rounded-xl shadow-2xs select-none"
                               title="Update window expired: Must be filled within 30 minutes of slot end time"
                             >
-                              <Lock size={12} className="text-slate-400" />
+                              <Lock size={12} className="text-red-600 shrink-0" />
                               <span>Locked</span>
                             </span>
                           );
@@ -876,23 +881,29 @@ export default function DailyOutputTable({
                               {canEdit && isOpen && !isLockedForOperator && (
                                 <button
                                   onClick={() => handleEdit(entry)}
-                                  className="p-1 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors cursor-pointer"
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-50 hover:bg-blue-600 text-blue-700 hover:text-white border border-blue-200/90 font-bold text-xs transition-all shadow-2xs active:scale-95 cursor-pointer group"
                                   title={lockInfo.isLocked ? "Admin Override Edit" : "Edit actual count"}
+                                  aria-label="Edit actual count"
                                 >
-                                  <Edit3 size={14} />
+                                  <Edit3 size={13} className="text-blue-600 group-hover:text-white transition-colors" />
+                                  <span>Edit</span>
                                 </button>
                               )}
                               {isLockedForOperator && (
-                                <span title="Locked: 30-minute window closed" className="text-slate-300">
-                                  <Lock size={13} />
+                                <span
+                                  title="Locked: 30-minute window closed"
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-red-50 border border-red-200 text-red-600 font-bold text-[11px] shadow-2xs select-none"
+                                >
+                                  <Lock size={12} className="text-red-600 shrink-0" />
+                                  <span>Locked</span>
                                 </span>
                               )}
                               {lockInfo.isLocked && isAdminOrManager && (
                                 <span
-                                  className="text-[9px] font-bold text-red-600 bg-red-50 border border-red-200/80 px-1 py-0.5 rounded-md flex items-center gap-0.5"
+                                  className="text-[9px] font-bold text-red-700 bg-red-50 border border-red-200 px-1 py-0.5 rounded-md flex items-center gap-0.5 shadow-2xs"
                                   title="Admin override active"
                                 >
-                                  <Lock size={8} />
+                                  <Lock size={8} className="text-red-700" />
                                   <span>Override</span>
                                 </span>
                               )}
