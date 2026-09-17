@@ -18,14 +18,20 @@ export interface ShiftTeamDuty {
 export const ROTATION_ANCHOR_DATE = "2026-09-14"; // Monday
 
 /**
- * Parse YYYY-MM-DD string to local Date object at midnight
+ * Parse YYYY-MM-DD or ISO string or Date object to local Date at midnight
  */
-export function parseLocalDate(dateStr: string): Date {
-  const parts = dateStr.split("-").map(Number);
-  if (parts.length !== 3 || parts.some(isNaN)) {
-    return new Date();
+export function parseLocalDate(dateInput: Date | string): Date {
+  if (dateInput instanceof Date) {
+    return new Date(dateInput.getFullYear(), dateInput.getMonth(), dateInput.getDate(), 0, 0, 0, 0);
   }
-  return new Date(parts[0], parts[1] - 1, parts[2], 0, 0, 0, 0);
+  const str = String(dateInput).trim();
+  const cleanStr = str.includes("T") ? str.split("T")[0] : str.split(" ")[0];
+  const parts = cleanStr.split("-").map(Number);
+  if (parts.length === 3 && !parts.some(isNaN)) {
+    return new Date(parts[0], parts[1] - 1, parts[2], 0, 0, 0, 0);
+  }
+  const fallback = new Date(dateInput);
+  return new Date(fallback.getFullYear(), fallback.getMonth(), fallback.getDate(), 0, 0, 0, 0);
 }
 
 /**
@@ -42,7 +48,7 @@ export function formatLocalDate(date: Date): string {
  * Get the Monday (start of week) for any date
  */
 export function getMondayOfWeek(dateInput: Date | string): Date {
-  const date = typeof dateInput === "string" ? parseLocalDate(dateInput) : new Date(dateInput);
+  const date = parseLocalDate(dateInput);
   const day = date.getDay(); // 0 is Sunday, 1 is Monday ... 6 is Saturday
   const diffToMonday = day === 0 ? -6 : 1 - day;
   const monday = new Date(date.getFullYear(), date.getMonth(), date.getDate() + diffToMonday, 0, 0, 0, 0);
@@ -109,7 +115,7 @@ export function getDefaultShiftTeams(dateInput: Date | string): ShiftTeamDuty {
  * Generate weekly schedule rows for Admin shift viewer (e.g. past 1 week to next 6 weeks)
  */
 export function getWeeklyRotationSchedules(
-  currentDateInput: Date | string = "2026-09-16",
+  currentDateInput: Date | string = new Date(),
   pastWeeks = 1,
   futureWeeks = 6
 ): ShiftTeamDuty[] {

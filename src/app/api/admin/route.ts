@@ -24,7 +24,9 @@ export async function GET(request: NextRequest) {
     const type = searchParams.get("type"); // "audit", "users", or "shifts"
 
     if (type === "shifts") {
-      const schedules = getWeeklyRotationSchedules("2026-09-16", 1, 6);
+      const dateParam = searchParams.get("date");
+      const targetDate = dateParam || new Date();
+      const schedules = getWeeklyRotationSchedules(targetDate, 1, 6);
       const startLimit = new Date(schedules[0].weekStart + "T00:00:00.000Z");
       const endLimit = new Date(schedules[schedules.length - 1].weekEnd + "T23:59:59.999Z");
 

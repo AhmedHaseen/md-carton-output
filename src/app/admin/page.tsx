@@ -67,7 +67,7 @@ export default function AdminPage() {
   const [schedules, setSchedules] = useState<ShiftSchedule[]>([]);
   const [existingDays, setExistingDays] = useState<any[]>([]);
   const [swappingWeek, setSwappingWeek] = useState<string | null>(null);
-  const [overrideDate, setOverrideDate] = useState("2026-09-16");
+  const [overrideDate, setOverrideDate] = useState(() => format(new Date(), "yyyy-MM-dd"));
   const [overrideMorningTeam, setOverrideMorningTeam] = useState<"A" | "B">("A");
   const [applyingOverride, setApplyingOverride] = useState(false);
 
