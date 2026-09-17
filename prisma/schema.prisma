@@ -1,0 +1,130 @@
+// Prisma Schema for MD Carton Output Digitalization System
+// Based on Section 7 of the project documentation
+
+generator client {
+  provider        = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── User & Roles ───────────────────────────────────────────────
+
+enum Role {
+  OPERATOR
+  SUPERVISOR
+  MANAGER
+  ADMIN
+}
+
+model User {
+  id              String   @id @default(cuid())
+  name            String
+  username        String   @unique
+  password        String   // bcrypt hashed
+  displayPassword String?  @map("display_password") // Readable password visible to Admins/Managers
+  role            Role     @default(OPERATOR)
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@map("users")
+}
+
+// ─── Work Days ──────────────────────────────────────────────────
+
+enum DayStatus {
+  OPEN
+  CLOSED
+}
+
+model WorkDay {
+  id          String    @id @default(cuid())
+  workDate    DateTime  @unique @map("work_date") @db.Date
+  status      DayStatus @default(OPEN)
+  morningTeam String?   @map("morning_team") // "A" | "B"
+  eveningTeam String?   @map("evening_team") // "B" | "A"
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  entries MdOutputEntry[]
+
+  @@map("work_days")
+}
+
+// ─── Time Slots (16 configured slots) ───────────────────────────
+
+enum Shift {
+  MORNING
+  EVENING
+}
+
+model MdTimeSlot {
+  id            String  @id @default(cuid())
+  shift         Shift
+  startTime     String  @map("start_time") // "05:30"
+  endTime       String  @map("end_time") // "06:30"
+  sequenceNo    Int     @unique @map("sequence_no")
+  defaultTarget Int     @default(120) @map("default_target")
+  isActive      Boolean @default(true) @map("is_active")
+
+  entries MdOutputEntry[]
+
+  @@map("md_time_slots")
+}
+
+// ─── Output Entries (one per day per slot) ───────────────────────
+
+enum TargetSource {
+  DEFAULT
+  OVERRIDE
+}
+
+model MdOutputEntry {
+  id            String       @id @default(cuid())
+  workDayId     String       @map("work_day_id")
+  timeSlotId    String       @map("time_slot_id")
+  actualCartons Int?         @map("actual_cartons") // nullable until entered
+  targetCartons Int          @map("target_cartons")
+  targetSource  TargetSource @default(DEFAULT) @map("target_source")
+  enteredBy     String?      @map("entered_by")
+  enteredAt     DateTime?    @map("entered_at")
+  updatedAt     DateTime     @updatedAt @map("updated_at")
+
+  workDay   WorkDay    @relation(fields: [workDayId], references: [id], onDelete: Cascade)
+  timeSlot  MdTimeSlot @relation(fields: [timeSlotId], references: [id])
+  overrides TargetOverride[]
+
+  @@unique([workDayId, timeSlotId])
+  @@map("md_output_entries")
+}
+
+// ─── Target Overrides ────────────────────────────────────────────
+
+model TargetOverride {
+  id            String   @id @default(cuid())
+  outputEntryId String   @map("output_entry_id")
+  oldTarget     Int      @map("old_target")
+  newTarget     Int      @map("new_target")
+  reason        String
+  changedBy     String   @map("changed_by")
+  changedAt     DateTime @default(now()) @map("changed_at")
+
+  outputEntry MdOutputEntry @relation(fields: [outputEntryId], references: [id], onDelete: Cascade)
+
+  @@map("target_overrides")
+}
+
+// ─── Audit Log ───────────────────────────────────────────────────
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?  @map("user_id")
+  action     String // CREATE, UPDATE, DELETE, OVERRIDE, RESET
+  entityType String   @map("entity_type") // WorkDay, MdOutputEntry, TargetOverride
+  entityId   String   @map("entity_id")
+  detailsJson Json?   @map("details_json")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@map("audit_logs")
+}
