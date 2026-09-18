@@ -40,11 +40,26 @@ function getStatusBadge(status: SlotWithCalculations["status"]) {
     case "PENDING":
       return <span className="badge badge-pending">Pending</span>;
     case "ON_TARGET":
-      return <span className="badge badge-on-target">On Target</span>;
+      return (
+        <span className="badge badge-on-target inline-flex items-center gap-1 shadow-2xs">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-600"></span>
+          On Target
+        </span>
+      );
     case "ABOVE_TARGET":
-      return <span className="badge badge-above-target">Above Target</span>;
+      return (
+        <span className="badge badge-above-target inline-flex items-center gap-1 shadow-2xs">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-600"></span>
+          Above Target
+        </span>
+      );
     case "BELOW_TARGET":
-      return <span className="badge badge-below-target">Below Target</span>;
+      return (
+        <span className="badge badge-below-target inline-flex items-center gap-1 shadow-2xs">
+          <span className="w-1.5 h-1.5 rounded-full bg-red-600"></span>
+          Below Target
+        </span>
+      );
   }
 }
 
@@ -574,47 +589,60 @@ export default function DailyOutputTable({
                     Actual Count
                   </span>
                   {isEditing ? (
-                    <div className="flex flex-col items-end gap-1">
-                      <div className="flex items-center gap-1.5">
-                        <input
-                          type="number"
-                          min="0"
-                          className="carton-input w-24 h-10 font-black text-base text-slate-900 border-2 border-blue-500 focus:ring-2 focus:ring-blue-500/20"
-                          value={editValue}
-                          onChange={(e) => setEditValue(e.target.value)}
-                          onKeyDown={(e) => handleKeyDown(e, entry.id)}
-                          placeholder="0"
-                          autoFocus
-                          disabled={isSaving}
-                        />
-                        <button
-                          onClick={() => handleSave(entry.id)}
-                          disabled={isSaving}
-                          className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center hover:bg-emerald-700 active:scale-95 transition-all shadow-xs disabled:opacity-50 cursor-pointer"
-                          title="Save"
-                        >
-                          {isSaving ? (
-                            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                          ) : (
-                            <Check size={18} />
+                    (() => {
+                      const parsedMobileVal = editValue.trim() !== "" ? parseInt(editValue.trim(), 10) : null;
+                      const isMobileOnOrAbove = parsedMobileVal !== null && !isNaN(parsedMobileVal) && parsedMobileVal >= entry.targetCartons;
+                      const isMobileBelow = parsedMobileVal !== null && !isNaN(parsedMobileVal) && parsedMobileVal < entry.targetCartons;
+                      const mobileInputColor = isMobileOnOrAbove
+                        ? "border-emerald-600 bg-emerald-400 text-black font-black focus:ring-emerald-500/30"
+                        : isMobileBelow
+                        ? "border-red-600 bg-red-400 text-black font-black focus:ring-red-500/30"
+                        : "border-blue-500 bg-white text-black font-black focus:ring-blue-500/20";
+
+                      return (
+                        <div className="flex flex-col items-end gap-1">
+                          <div className="flex items-center gap-1.5">
+                            <input
+                              type="number"
+                              min="0"
+                              className={`carton-input w-24 h-10 font-black text-base border-2 transition-all ${mobileInputColor}`}
+                              value={editValue}
+                              onChange={(e) => setEditValue(e.target.value)}
+                              onKeyDown={(e) => handleKeyDown(e, entry.id)}
+                              placeholder="0"
+                              autoFocus
+                              disabled={isSaving}
+                            />
+                            <button
+                              onClick={() => handleSave(entry.id)}
+                              disabled={isSaving}
+                              className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center hover:bg-emerald-700 active:scale-95 transition-all shadow-xs disabled:opacity-50 cursor-pointer"
+                              title="Save"
+                            >
+                              {isSaving ? (
+                                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                              ) : (
+                                <Check size={18} />
+                              )}
+                            </button>
+                            <button
+                              onClick={handleCancel}
+                              disabled={isSaving}
+                              className="w-10 h-10 rounded-xl bg-slate-200 text-slate-700 flex items-center justify-center hover:bg-slate-300 active:scale-95 transition-all cursor-pointer"
+                              title="Cancel"
+                            >
+                              <X size={18} />
+                            </button>
+                          </div>
+                          {error && (
+                            <span className="text-xs text-red-500 font-medium flex items-center gap-1">
+                              <AlertTriangle size={12} />
+                              {error}
+                            </span>
                           )}
-                        </button>
-                        <button
-                          onClick={handleCancel}
-                          disabled={isSaving}
-                          className="w-10 h-10 rounded-xl bg-slate-200 text-slate-700 flex items-center justify-center hover:bg-slate-300 active:scale-95 transition-all cursor-pointer"
-                          title="Cancel"
-                        >
-                          <X size={18} />
-                        </button>
-                      </div>
-                      {error && (
-                        <span className="text-xs text-red-500 font-medium flex items-center gap-1">
-                          <AlertTriangle size={12} />
-                          {error}
-                        </span>
-                      )}
-                    </div>
+                        </div>
+                      );
+                    })()
                   ) : entry.actualCartons === null ? (
                     /* If no count entered yet */
                     (() => {
@@ -662,11 +690,24 @@ export default function DailyOutputTable({
                     (() => {
                       const lockInfo = getSlotLockInfo(entry);
                       const isLockedForOperator = lockInfo.isLocked && !isAdminOrManager;
+                      const isOnOrAbove = (entry.actualCartons ?? 0) >= entry.targetCartons;
 
                       return (
                         <div className="flex flex-col items-end gap-1">
                           <div className="inline-flex items-center gap-2">
-                            <span className="font-extrabold text-xl text-slate-900">
+                            {/* Solid filled green/red value box with black number */}
+                            <span
+                              className={`inline-flex items-center justify-center px-3.5 py-1.5 min-w-[60px] rounded-xl font-black text-lg border-2 shadow-sm text-black transition-all select-none ${
+                                isOnOrAbove
+                                  ? "bg-emerald-400 border-emerald-600"
+                                  : "bg-red-400 border-red-600"
+                              }`}
+                              title={
+                                isOnOrAbove
+                                  ? `Actual: ${entry.actualCartons} >= Target: ${entry.targetCartons} (On / Above Target)`
+                                  : `Actual: ${entry.actualCartons} < Target: ${entry.targetCartons} (Below Target)`
+                              }
+                            >
                               {entry.actualCartons}
                             </span>
                             {canEdit && isOpen && !isLockedForOperator && (
@@ -796,47 +837,60 @@ export default function DailyOutputTable({
                   {/* ─── Actual Count Column with "Add" Button / Inline Input ─── */}
                   <td className="text-center">
                     {isEditing ? (
-                      <div className="flex flex-col items-center gap-1 py-1">
-                        <div className="flex items-center justify-center gap-1.5">
-                          <input
-                            type="number"
-                            min="0"
-                            className="carton-input w-24 font-bold text-slate-900 border-2 border-blue-500 focus:ring-2 focus:ring-blue-500/20"
-                            value={editValue}
-                            onChange={(e) => setEditValue(e.target.value)}
-                            onKeyDown={(e) => handleKeyDown(e, entry.id)}
-                            placeholder="0"
-                            autoFocus
-                            disabled={isSaving}
-                          />
-                          <button
-                            onClick={() => handleSave(entry.id)}
-                            disabled={isSaving}
-                            className="p-1.5 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 active:scale-95 transition-all shadow-xs disabled:opacity-50"
-                            title="Save"
-                          >
-                            {isSaving ? (
-                              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                            ) : (
-                              <Check size={16} />
+                      (() => {
+                        const parsedDesktopVal = editValue.trim() !== "" ? parseInt(editValue.trim(), 10) : null;
+                        const isDesktopOnOrAbove = parsedDesktopVal !== null && !isNaN(parsedDesktopVal) && parsedDesktopVal >= entry.targetCartons;
+                        const isDesktopBelow = parsedDesktopVal !== null && !isNaN(parsedDesktopVal) && parsedDesktopVal < entry.targetCartons;
+                        const desktopInputColor = isDesktopOnOrAbove
+                          ? "border-emerald-600 bg-emerald-400 text-black font-black focus:ring-emerald-500/30"
+                          : isDesktopBelow
+                          ? "border-red-600 bg-red-400 text-black font-black focus:ring-red-500/30"
+                          : "border-blue-500 bg-white text-black font-black focus:ring-blue-500/20";
+
+                        return (
+                          <div className="flex flex-col items-center gap-1 py-1">
+                            <div className="flex items-center justify-center gap-1.5">
+                              <input
+                                type="number"
+                                min="0"
+                                className={`carton-input w-24 font-black border-2 transition-all ${desktopInputColor}`}
+                                value={editValue}
+                                onChange={(e) => setEditValue(e.target.value)}
+                                onKeyDown={(e) => handleKeyDown(e, entry.id)}
+                                placeholder="0"
+                                autoFocus
+                                disabled={isSaving}
+                              />
+                              <button
+                                onClick={() => handleSave(entry.id)}
+                                disabled={isSaving}
+                                className="p-1.5 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 active:scale-95 transition-all shadow-xs disabled:opacity-50 cursor-pointer"
+                                title="Save"
+                              >
+                                {isSaving ? (
+                                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                ) : (
+                                  <Check size={16} />
+                                )}
+                              </button>
+                              <button
+                                onClick={handleCancel}
+                                disabled={isSaving}
+                                className="p-1.5 rounded-lg bg-slate-200 text-slate-700 hover:bg-slate-300 active:scale-95 transition-all cursor-pointer"
+                                title="Cancel"
+                              >
+                                <X size={16} />
+                              </button>
+                            </div>
+                            {error && (
+                              <span className="text-xs text-red-500 font-medium flex items-center gap-1">
+                                <AlertTriangle size={12} />
+                                {error}
+                              </span>
                             )}
-                          </button>
-                          <button
-                            onClick={handleCancel}
-                            disabled={isSaving}
-                            className="p-1.5 rounded-lg bg-slate-200 text-slate-700 hover:bg-slate-300 active:scale-95 transition-all"
-                            title="Cancel"
-                          >
-                            <X size={16} />
-                          </button>
-                        </div>
-                        {error && (
-                          <span className="text-xs text-red-500 font-medium flex items-center gap-1">
-                            <AlertTriangle size={12} />
-                            {error}
-                          </span>
-                        )}
-                      </div>
+                          </div>
+                        );
+                      })()
                     ) : entry.actualCartons === null ? (
                       /* If no actual count: prominent Add button */
                       (() => {
@@ -885,15 +939,28 @@ export default function DailyOutputTable({
                         return <span className="text-slate-300 font-medium">—</span>;
                       })()
                     ) : (
-                      /* If actual count exists: show number with quick edit button */
+                      /* If actual count exists: show target-achievement colored value box with quick edit button */
                       (() => {
                         const lockInfo = getSlotLockInfo(entry);
                         const isLockedForOperator = lockInfo.isLocked && !isAdminOrManager;
+                        const isOnOrAbove = (entry.actualCartons ?? 0) >= entry.targetCartons;
 
                         return (
                           <div className="flex flex-col items-center gap-1 py-1">
                             <div className="inline-flex items-center justify-center gap-2">
-                              <span className="font-extrabold text-base text-slate-800">
+                              {/* Solid filled green/red value box with black number */}
+                              <span
+                                className={`inline-flex items-center justify-center px-3.5 py-1.5 min-w-[64px] rounded-xl font-black text-base border-2 shadow-sm text-black transition-all select-none ${
+                                  isOnOrAbove
+                                    ? "bg-emerald-400 border-emerald-600"
+                                    : "bg-red-400 border-red-600"
+                                }`}
+                                title={
+                                  isOnOrAbove
+                                    ? `Actual: ${entry.actualCartons} >= Target: ${entry.targetCartons} (On / Above Target)`
+                                    : `Actual: ${entry.actualCartons} < Target: ${entry.targetCartons} (Below Target)`
+                                }
+                              >
                                 {entry.actualCartons}
                               </span>
                               {canEdit && isOpen && !isLockedForOperator && (
