@@ -1,5 +1,4 @@
-// API: Admin — Audit logs and user management
-// GET /api/admin/audit-logs?limit=50&action=UPDATE
+// API: Admin — User management, shift rotation, and system settings
 // GET /api/admin/users
 // POST /api/admin/users
 
@@ -21,7 +20,7 @@ export async function GET(request: NextRequest) {
     }
 
     const { searchParams } = new URL(request.url);
-    const type = searchParams.get("type"); // "audit", "users", or "shifts"
+    const type = searchParams.get("type"); // "users", "shifts", or "settings"
 
     if (type === "settings") {
       const allSettings = await prisma.systemSetting.findMany();
@@ -80,20 +79,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ users });
     }
 
-    // Default: audit logs
-    const limit = parseInt(searchParams.get("limit") || "50");
-    const action = searchParams.get("action");
-
-    const where: any = {};
-    if (action) where.action = action;
-
-    const logs = await prisma.auditLog.findMany({
-      where,
-      orderBy: { createdAt: "desc" },
-      take: limit,
-    });
-
-    return NextResponse.json({ logs });
+    return NextResponse.json({ error: "Invalid type" }, { status: 400 });
   } catch (error) {
     console.error("GET /api/admin error:", error);
     return NextResponse.json({ error: "Failed to fetch data" }, { status: 500 });
@@ -129,20 +115,6 @@ export async function POST(request: NextRequest) {
         where: { key },
         create: { key, value: stringValue },
         update: { value: stringValue },
-      });
-
-      await prisma.auditLog.create({
-        data: {
-          userId: session.user.id,
-          action: "UPDATE",
-          entityType: "SystemSetting",
-          entityId: key,
-          detailsJson: {
-            settingKey: key,
-            newValue: stringValue,
-            performedBy: session.user.username,
-          },
-        },
       });
 
       const allSettings = await prisma.systemSetting.findMany();
@@ -191,24 +163,6 @@ export async function POST(request: NextRequest) {
           },
         });
 
-        await prisma.auditLog.create({
-          data: {
-            userId: session.user.id,
-            action: "UPDATE",
-            entityType: "ShiftRotation",
-            entityId: `${weekStart}_${weekEnd}`,
-            detailsJson: {
-              action: "SWAP_WEEK",
-              weekStart,
-              weekEnd,
-              morningTeam,
-              eveningTeam,
-              daysUpdated: updateResult.count,
-              performedBy: session.user.username,
-            },
-          },
-        });
-
         return NextResponse.json({
           success: true,
           updatedCount: updateResult.count,
@@ -235,22 +189,6 @@ export async function POST(request: NextRequest) {
             data: { morningTeam, eveningTeam },
           });
         }
-
-        await prisma.auditLog.create({
-          data: {
-            userId: session.user.id,
-            action: "UPDATE",
-            entityType: "ShiftRotation",
-            entityId: date,
-            detailsJson: {
-              action: "OVERRIDE_DAY",
-              date,
-              morningTeam,
-              eveningTeam,
-              performedBy: session.user.username,
-            },
-          },
-        });
 
         return NextResponse.json({ success: true, workDay });
       }
@@ -292,16 +230,6 @@ export async function POST(request: NextRequest) {
         displayPassword: true,
         role: true,
         createdAt: true,
-      },
-    });
-
-    // Audit log
-    await prisma.auditLog.create({
-      data: {
-        action: "CREATE",
-        entityType: "User",
-        entityId: user.id,
-        detailsJson: { name, username, role: role || "OPERATOR" },
       },
     });
 
@@ -365,22 +293,6 @@ export async function DELETE(request: NextRequest) {
     // Delete user from database
     await prisma.user.delete({
       where: { id: userId },
-    });
-
-    // Record audit log
-    await prisma.auditLog.create({
-      data: {
-        userId: session.user.id,
-        action: "DELETE",
-        entityType: "User",
-        entityId: userId,
-        detailsJson: {
-          name: targetUser.name,
-          username: targetUser.username,
-          role: targetUser.role,
-          deletedBy: session.user.username,
-        },
-      },
     });
 
     return NextResponse.json({

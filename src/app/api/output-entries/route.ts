@@ -89,34 +89,14 @@ export async function PATCH(request: NextRequest) {
     }
 
     // Update the entry
-    const oldValue = entry.actualCartons;
-    const updated = await prisma.$transaction(async (tx) => {
-      const updatedEntry = await tx.mdOutputEntry.update({
-        where: { id: entryId },
-        data: {
-          actualCartons: cartonValue !== null ? Number(cartonValue) : null,
-          enteredBy: session?.user?.id || userId || null,
-          enteredAt: new Date(),
-        },
-        include: { timeSlot: true },
-      });
-
-      // Audit log
-      await tx.auditLog.create({
-        data: {
-          userId: session?.user?.id || userId || null,
-          action: oldValue === null ? "CREATE" : "UPDATE",
-          entityType: "MdOutputEntry",
-          entityId: entryId,
-          detailsJson: {
-            oldValue,
-            newValue: cartonValue !== null ? Number(cartonValue) : null,
-            timeSlot: `${updatedEntry.timeSlot.startTime}-${updatedEntry.timeSlot.endTime}`,
-          },
-        },
-      });
-
-      return updatedEntry;
+    const updated = await prisma.mdOutputEntry.update({
+      where: { id: entryId },
+      data: {
+        actualCartons: cartonValue !== null ? Number(cartonValue) : null,
+        enteredBy: session?.user?.id || userId || null,
+        enteredAt: new Date(),
+      },
+      include: { timeSlot: true },
     });
 
     // Fetch all entries for this day to recalculate cumulative totals

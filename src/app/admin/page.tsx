@@ -8,7 +8,6 @@ import { useRouter } from "next/navigation";
 import {
   Shield,
   Users,
-  ScrollText,
   UserPlus,
   X,
   RefreshCcw,
@@ -27,16 +26,6 @@ import {
   Lock,
   Clock,
 } from "lucide-react";
-
-interface AuditLog {
-  id: string;
-  userId: string | null;
-  action: string;
-  entityType: string;
-  entityId: string;
-  detailsJson: any;
-  createdAt: string;
-}
 
 interface User {
   id: string;
@@ -61,8 +50,7 @@ export default function AdminPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
 
-  const [activeTab, setActiveTab] = useState<"shifts" | "settings" | "users" | "audit">("shifts");
-  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [activeTab, setActiveTab] = useState<"shifts" | "settings" | "users">("shifts");
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -111,7 +99,7 @@ export default function AdminPage() {
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
       const tab = params.get("tab");
-      if (tab === "users" || tab === "audit" || tab === "shifts" || tab === "settings") {
+      if (tab === "users" || tab === "shifts" || tab === "settings") {
         setActiveTab(tab);
       }
     }
@@ -211,19 +199,6 @@ export default function AdminPage() {
     }
   };
 
-  const fetchAuditLogs = async () => {
-    setLoading(true);
-    try {
-      const res = await fetch("/api/admin?type=audit&limit=100");
-      const data = await res.json();
-      setAuditLogs(data.logs || []);
-    } catch {
-      toast.error("Failed to load audit logs");
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const fetchUsers = async () => {
     setLoading(true);
     try {
@@ -240,7 +215,6 @@ export default function AdminPage() {
   useEffect(() => {
     if (activeTab === "shifts") fetchShifts();
     else if (activeTab === "settings") fetchSettings();
-    else if (activeTab === "audit") fetchAuditLogs();
     else fetchUsers();
   }, [activeTab]);
 
@@ -438,12 +412,12 @@ export default function AdminPage() {
           Admin Control Center
         </h1>
         <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-          User access management, privilege roles, and system audit logs
+          User access management, privilege roles, and system settings
         </p>
       </div>
 
       {/* Tabs (Responsive segmented control) */}
-      <div className="w-full sm:w-fit grid grid-cols-2 sm:grid-cols-4 gap-1 bg-slate-200/80 rounded-2xl p-1 mb-6">
+      <div className="w-full sm:w-fit grid grid-cols-1 sm:grid-cols-3 gap-1 bg-slate-200/80 rounded-2xl p-1 mb-6">
         <button
           onClick={() => setActiveTab("shifts")}
           className={`flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all min-h-[42px] cursor-pointer ${
@@ -476,17 +450,6 @@ export default function AdminPage() {
         >
           <Users size={16} className="shrink-0" />
           <span className="truncate">Users &amp; Roles</span>
-        </button>
-        <button
-          onClick={() => setActiveTab("audit")}
-          className={`flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all min-h-[42px] cursor-pointer ${
-            activeTab === "audit"
-              ? "bg-white text-slate-900 shadow-xs"
-              : "text-slate-600 hover:text-slate-900"
-          }`}
-        >
-          <ScrollText size={16} className="shrink-0" />
-          <span className="truncate">Activity Logs</span>
         </button>
       </div>
 
@@ -989,78 +952,12 @@ export default function AdminPage() {
                     <span>Admin & Manager Override</span>
                   </div>
                   <p className="text-xs text-slate-600 leading-relaxed">
-                    If an input is delayed due to network failure, machine stoppage, or supervisor review, Admins and Managers can edit locked slots at any time. The system transparently logs each override in the audit log.
+                    If an input is delayed due to network failure, machine stoppage, or supervisor review, Admins and Managers can edit locked slots at any time.
                   </p>
                 </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
-
-      {/* ─── Audit Logs Tab ───────────────────────────────────────────── */}
-      {activeTab === "audit" && (
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-200/90 overflow-hidden">
-          <div className="px-4 sm:px-6 py-4 border-b border-slate-200/80 flex items-center justify-between bg-slate-50/50">
-            <h2 className="font-bold text-slate-800 text-sm sm:text-base flex items-center gap-2">
-              <ScrollText size={18} className="text-blue-600" />
-              <span>System Activity Log</span>
-            </h2>
-            <button
-              onClick={fetchAuditLogs}
-              className="p-2 hover:bg-slate-200/60 rounded-xl transition-colors text-slate-500 hover:text-slate-800"
-              title="Refresh logs"
-            >
-              <RefreshCcw size={16} />
-            </button>
-          </div>
-
-          {loading ? (
-            <div className="flex justify-center py-16">
-              <div className="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin" />
-            </div>
-          ) : auditLogs.length === 0 ? (
-            <div className="py-12 text-center text-slate-400">
-              <ScrollText size={36} className="mx-auto mb-2 text-slate-300" />
-              <p className="text-sm">No activity events recorded yet</p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto touch-scroll">
-              <table className="data-table text-xs sm:text-sm">
-                <thead>
-                  <tr>
-                    <th>Timestamp</th>
-                    <th>Action</th>
-                    <th>Entity</th>
-                    <th>Details</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {auditLogs.map((log) => (
-                    <tr key={log.id}>
-                      <td className="text-slate-500 whitespace-nowrap font-medium">
-                        {format(
-                          new Date(log.createdAt),
-                          "MMM d, yyyy h:mm a"
-                        )}
-                      </td>
-                      <td>{getActionBadge(log.action)}</td>
-                      <td>
-                        <span className="text-xs font-mono font-semibold bg-slate-100 text-slate-700 px-2 py-0.5 rounded-md border border-slate-200/60">
-                          {log.entityType}
-                        </span>
-                      </td>
-                      <td className="text-slate-600 max-w-xs truncate">
-                        {log.detailsJson
-                          ? JSON.stringify(log.detailsJson)
-                          : "—"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
         </div>
       )}
 

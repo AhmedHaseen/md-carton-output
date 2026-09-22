@@ -168,21 +168,6 @@ export async function POST(request: NextRequest) {
         })),
       });
 
-      // Audit log
-      await tx.auditLog.create({
-        data: {
-          action: "CREATE",
-          entityType: "WorkDay",
-          entityId: newDay.id,
-          detailsJson: {
-            date,
-            slotsCreated: timeSlots.length,
-            morningTeam: body.morningTeam || defaultDuty.morningTeam,
-            eveningTeam: body.eveningTeam || defaultDuty.eveningTeam,
-          },
-        },
-      });
-
       // Return the complete work day with entries
       return tx.workDay.findUnique({
         where: { id: newDay.id },
@@ -266,21 +251,6 @@ export async function PATCH(request: NextRequest) {
           entries: {
             include: { timeSlot: true },
             orderBy: { timeSlot: { sequenceNo: "asc" } },
-          },
-        },
-      });
-
-      await tx.auditLog.create({
-        data: {
-          userId: session?.user?.id || userId || null,
-          action: "UPDATE",
-          entityType: "WorkDay",
-          entityId: workDayId,
-          detailsJson: {
-            shiftUpdated: shift,
-            morningTeam,
-            eveningTeam,
-            updatedByRole: userRole,
           },
         },
       });

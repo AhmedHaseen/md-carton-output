@@ -63,7 +63,7 @@ const navItems: NavItem[] = [
     label: "Admin",
     href: "/admin",
     icon: Shield,
-    description: "Users & audit logs",
+    description: "Users & system settings",
     adminOnly: true,
   },
 ];

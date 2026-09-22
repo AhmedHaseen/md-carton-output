@@ -126,21 +126,6 @@ export async function PATCH(request: NextRequest) {
         include: { timeSlot: true },
       });
 
-      // Audit log
-      await tx.auditLog.create({
-        data: {
-          userId: changedBy || null,
-          action: "OVERRIDE",
-          entityType: "TargetOverride",
-          entityId: entryId,
-          detailsJson: {
-            oldTarget: entry.targetCartons,
-            newTarget: Number(newTarget),
-            reason,
-          },
-        },
-      });
-
       return updated;
     });
 
