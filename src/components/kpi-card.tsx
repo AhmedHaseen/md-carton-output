@@ -113,14 +113,14 @@ export default function KpiCard({
       </div>
 
       <div>
-        <p className="text-[11px] sm:text-xs font-semibold text-slate-500 uppercase tracking-wider mb-0.5 sm:mb-1 truncate">
+        <p className="text-[11px] sm:text-xs font-bold text-slate-700 uppercase tracking-wider mb-0.5 sm:mb-1 truncate">
           {title}
         </p>
         <p className={`text-xl sm:text-2xl font-extrabold ${colors.text} tracking-tight leading-tight`}>
           {value}
         </p>
         {subtitle && (
-          <p className="text-[11px] sm:text-xs text-slate-400 mt-1 font-medium truncate">
+          <p className="text-[11px] sm:text-xs text-slate-600 mt-1 font-semibold truncate">
             {subtitle}
           </p>
         )}

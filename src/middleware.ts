@@ -13,24 +13,34 @@ export default auth((req) => {
   const userRole = req.auth?.user?.role;
   const pathname = nextUrl.pathname;
 
-  const isRestrictedPage =
-    pathname.startsWith("/admin") || pathname.startsWith("/targets");
   const isRestrictedApi =
     pathname.startsWith("/api/admin") ||
     (pathname.startsWith("/api/targets") && req.method === "PATCH");
 
-  // 1. Not logged in -> redirect to login page
+  // 1. Not logged in -> return 401 for API, or redirect to login page for Web pages
   if (!isLoggedIn) {
-    if (isRestrictedApi) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (pathname.startsWith("/api")) {
+      return NextResponse.json(
+        { error: "Unauthorized. Please log in to continue." },
+        { status: 401 }
+      );
     }
     const loginUrl = new URL("/login", nextUrl);
     loginUrl.searchParams.set("callbackUrl", pathname);
     return NextResponse.redirect(loginUrl);
   }
 
-  // 2. Role-based authorization check: Only ADMIN and MANAGER have access
+  // 2. Role-based authorization checks:
+  // Operators / Staff are kept strictly to Daily Input (/) and MD Operations (/md-operations)
+  // to avoid hitting Neon 5GB network transfer limits on heavy analytical queries.
+  // Analysis (/daily-analysis, /weekly-analysis), Targets (/targets), and Admin (/admin) are reserved for Managers and Admins.
   const isAdminOrManager = userRole === "ADMIN" || userRole === "MANAGER";
+  const isManagerOrAdminPage =
+    pathname.startsWith("/admin") ||
+    pathname.startsWith("/targets") ||
+    pathname.startsWith("/daily-analysis") ||
+    pathname.startsWith("/weekly-analysis");
+
   if (!isAdminOrManager) {
     if (isRestrictedApi) {
       return NextResponse.json(
@@ -38,8 +48,8 @@ export default auth((req) => {
         { status: 403 }
       );
     }
-    if (isRestrictedPage) {
-      // Redirect non-admin/manager users back to the daily input dashboard
+    if (isManagerOrAdminPage) {
+      // Redirect operator/staff users back to the daily input dashboard
       return NextResponse.redirect(new URL("/", nextUrl));
     }
   }

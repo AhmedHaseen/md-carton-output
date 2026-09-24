@@ -13,7 +13,6 @@ datasource db {
 
 enum Role {
   OPERATOR
-  SUPERVISOR
   MANAGER
   ADMIN
 }
@@ -39,13 +38,14 @@ enum DayStatus {
 }
 
 model WorkDay {
-  id          String    @id @default(cuid())
-  workDate    DateTime  @unique @map("work_date") @db.Date
-  status      DayStatus @default(OPEN)
-  morningTeam String?   @map("morning_team") // "A" | "B"
-  eveningTeam String?   @map("evening_team") // "B" | "A"
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @updatedAt @map("updated_at")
+  id           String    @id @default(cuid())
+  workDate     DateTime  @unique @map("work_date") @db.Date
+  status       DayStatus @default(OPEN)
+  morningTeam  String?   @map("morning_team") // "A" | "B"
+  eveningTeam  String?   @map("evening_team") // "B" | "A"
+  createdLines Int[]     @default([]) @map("created_lines")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
 
   entries MdOutputEntry[]
 
@@ -73,7 +73,12 @@ model MdTimeSlot {
   @@map("md_time_slots")
 }
 
-// ─── Output Entries (one per day per slot) ───────────────────────
+// ─── Output Entries (one per day per slot per MD line) ───────────
+
+enum CustomerType {
+  PVH
+  OTHER
+}
 
 enum TargetSource {
   DEFAULT
@@ -84,6 +89,8 @@ model MdOutputEntry {
   id            String       @id @default(cuid())
   workDayId     String       @map("work_day_id")
   timeSlotId    String       @map("time_slot_id")
+  mdLine        Int          @default(1) @map("md_line")         // 1, 2, or 3
+  customerType  CustomerType @default(PVH) @map("customer_type") // PVH or OTHER
   actualCartons Int?         @map("actual_cartons") // nullable until entered
   targetCartons Int          @map("target_cartons")
   targetSource  TargetSource @default(DEFAULT) @map("target_source")
@@ -95,7 +102,8 @@ model MdOutputEntry {
   timeSlot  MdTimeSlot @relation(fields: [timeSlotId], references: [id])
   overrides TargetOverride[]
 
-  @@unique([workDayId, timeSlotId])
+  @@unique([workDayId, timeSlotId, mdLine])
+  @@index([timeSlotId])
   @@map("md_output_entries")
 }
 
@@ -112,6 +120,7 @@ model TargetOverride {
 
   outputEntry MdOutputEntry @relation(fields: [outputEntryId], references: [id], onDelete: Cascade)
 
+  @@index([outputEntryId])
   @@map("target_overrides")
 }
 
@@ -126,6 +135,7 @@ model AuditLog {
   detailsJson Json?   @map("details_json")
   createdAt  DateTime @default(now()) @map("created_at")
 
+  @@index([createdAt])
   @@map("audit_logs")
 }
 

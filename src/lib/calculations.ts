@@ -10,6 +10,8 @@ export interface SlotEntry {
   targetCartons: number;
   actualCartons: number | null;
   targetSource: "DEFAULT" | "OVERRIDE";
+  mdLine?: number;
+  customerType?: "PVH" | "OTHER";
 }
 
 export interface SlotWithCalculations extends SlotEntry {
@@ -166,10 +168,15 @@ export function calculateDailyKPIs(slots: SlotWithCalculations[]): DailyKPIs {
  * Format time from 24h "HH:MM" to 12h "H:MM AM/PM".
  */
 export function formatTime(time24: string): string {
-  const [hours, minutes] = time24.split(":").map(Number);
+  if (!time24) return "";
+  const parts = time24.split(":");
+  if (parts.length < 2) return time24;
+  const hours = parseInt(parts[0], 10);
+  const minutes = parseInt(parts[1], 10);
+  if (isNaN(hours) || isNaN(minutes)) return time24;
   const period = hours >= 12 ? "PM" : "AM";
   const hours12 = hours % 12 || 12;
-  return `${hours12}:${minutes.toString().padStart(2, "0")} ${period}`;
+  return `${hours12.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")} ${period}`;
 }
 
 /**

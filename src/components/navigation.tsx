@@ -8,7 +8,6 @@ import {
   BarChart3,
   CalendarRange,
   Target,
-  FileText,
   Shield,
   LogOut,
   Package,
@@ -16,8 +15,11 @@ import {
   X,
   Warehouse,
   User,
+  Monitor,
+  PanelLeftClose,
 } from "lucide-react";
 import { useState, useEffect } from "react";
+import { useSidebar } from "./sidebar-context";
 
 interface NavItem {
   label: string;
@@ -35,16 +37,24 @@ const navItems: NavItem[] = [
     description: "Enter hourly carton output",
   },
   {
+    label: "MD Operations",
+    href: "/md-operations",
+    icon: Monitor,
+    description: "Per-line operations analysis",
+  },
+  {
     label: "Daily Analysis",
     href: "/daily-analysis",
     icon: BarChart3,
     description: "Analyze daily performance",
+    adminOnly: true,
   },
   {
     label: "Weekly Analysis",
     href: "/weekly-analysis",
     icon: CalendarRange,
     description: "Weekly performance trends",
+    adminOnly: true,
   },
   {
     label: "Target Settings",
@@ -53,12 +63,7 @@ const navItems: NavItem[] = [
     description: "Manage targets & overrides",
     adminOnly: true,
   },
-  {
-    label: "Reports",
-    href: "/reports",
-    icon: FileText,
-    description: "Download daily PDF reports",
-  },
+
   {
     label: "Admin",
     href: "/admin",
@@ -70,6 +75,7 @@ const navItems: NavItem[] = [
 
 export default function Navigation() {
   const pathname = usePathname();
+  const { isDesktopCollapsed, toggleDesktopSidebar } = useSidebar();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [activeDate, setActiveDate] = useState<string>("");
   const { data: session, status } = useSession();
@@ -115,11 +121,12 @@ export default function Navigation() {
   // Don't show nav on login page (MUST be called AFTER all hooks)
   if (pathname === "/login") return null;
 
-  // Determine if current user has Admin or Manager role
+  // Role-based visibility:
+  // Operators only see Daily Input and MD Operations (saving Neon transfer bandwidth)
+  // Managers and Admins see Analysis, Target Settings & Admin
   const userRole = session?.user?.role;
   const isAdminOrManager = userRole === "ADMIN" || userRole === "MANAGER";
 
-  // Filter items: only Admin or Manager can see adminOnly items (Target Settings & Admin)
   const visibleNavItems = navItems.filter((item) => {
     if (item.adminOnly) {
       return status === "authenticated" && isAdminOrManager;
@@ -144,12 +151,6 @@ export default function Navigation() {
         return (
           <span className="text-[10px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30 px-2 py-0.5 rounded-full">
             Manager
-          </span>
-        );
-      case "SUPERVISOR":
-        return (
-          <span className="text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-full">
-            Supervisor
           </span>
         );
       case "OPERATOR":
@@ -215,9 +216,9 @@ export default function Navigation() {
       <aside
         className={`
           fixed top-0 left-0 z-50 h-full w-72 sm:w-80 lg:w-64 bg-slate-900 text-white
-          flex flex-col shadow-2xl transition-transform duration-300 ease-in-out
-          lg:translate-x-0 lg:shadow-none
+          flex flex-col shadow-2xl transition-all duration-300 ease-in-out
           ${mobileOpen ? "translate-x-0" : "-translate-x-full"}
+          ${isDesktopCollapsed ? "lg:-translate-x-full" : "lg:translate-x-0 lg:shadow-none"}
         `}
       >
         {/* Logo area */}
@@ -232,14 +233,27 @@ export default function Navigation() {
             </div>
           </div>
 
-          {/* Close button for mobile drawer */}
-          <button
-            onClick={() => setMobileOpen(false)}
-            className="lg:hidden w-9 h-9 flex items-center justify-center rounded-lg bg-slate-800 text-slate-400 hover:text-white"
-            aria-label="Close menu"
-          >
-            <X size={20} />
-          </button>
+          <div className="flex items-center gap-1.5">
+            {/* Desktop collapse button */}
+            <button
+              onClick={toggleDesktopSidebar}
+              type="button"
+              className="hidden lg:flex w-8 h-8 items-center justify-center rounded-lg bg-slate-800/80 hover:bg-slate-800 text-slate-400 hover:text-white border border-slate-700/60 active:scale-95 transition-all cursor-pointer"
+              aria-label="Hide navigation (expand screen)"
+              title="Hide navigation to expand screen (Ctrl+B)"
+            >
+              <PanelLeftClose size={18} />
+            </button>
+
+            {/* Close button for mobile drawer */}
+            <button
+              onClick={() => setMobileOpen(false)}
+              className="lg:hidden w-9 h-9 flex items-center justify-center rounded-lg bg-slate-800 text-slate-400 hover:text-white"
+              aria-label="Close menu"
+            >
+              <X size={20} />
+            </button>
+          </div>
         </div>
 
         {/* Navigation links with generous tap targets */}
@@ -264,7 +278,7 @@ export default function Navigation() {
                 ? activeDate
                   ? `/?date=${activeDate}`
                   : "/"
-                : activeDate && (item.href === "/daily-analysis" || item.href === "/weekly-analysis" || item.href === "/reports" || item.href === "/targets")
+                : activeDate && (item.href === "/daily-analysis" || item.href === "/weekly-analysis" || item.href === "/targets")
                 ? `${item.href}?date=${activeDate}`
                 : item.href;
 
@@ -322,6 +336,22 @@ export default function Navigation() {
               </div>
             </div>
           )}
+
+          {/* Quick collapse option for desktop */}
+          <button
+            onClick={toggleDesktopSidebar}
+            type="button"
+            className="hidden lg:flex items-center justify-between w-full px-3 py-2 mb-3 rounded-xl text-xs font-semibold text-slate-400 hover:text-white hover:bg-slate-800/80 border border-slate-800 transition-all cursor-pointer group"
+            title="Hide navigation to expand screen (Ctrl+B)"
+          >
+            <span className="flex items-center gap-2">
+              <PanelLeftClose size={15} className="text-slate-400 group-hover:text-cyan-400 transition-colors" />
+              <span>Hide Sidebar</span>
+            </span>
+            <kbd className="text-[10px] bg-slate-800 px-1.5 py-0.5 rounded text-slate-400 border border-slate-700 font-mono">
+              Ctrl+B
+            </kbd>
+          </button>
 
           <button
             className="flex items-center justify-center gap-2.5 w-full py-2.5 px-4 rounded-xl text-red-400 hover:bg-red-500/10 hover:text-red-300 transition-colors text-sm font-medium border border-red-500/20 active:scale-98 min-h-[44px] cursor-pointer"

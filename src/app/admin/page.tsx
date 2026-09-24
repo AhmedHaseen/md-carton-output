@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { format } from "date-fns";
+import { format, subMonths } from "date-fns";
 import toast from "react-hot-toast";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
@@ -25,6 +25,12 @@ import {
   Sliders,
   Lock,
   Clock,
+  Target,
+  Database,
+  AlertTriangle,
+  HardDrive,
+  Search,
+  AlertCircle,
 } from "lucide-react";
 
 interface User {
@@ -50,15 +56,9 @@ export default function AdminPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
 
-  const [activeTab, setActiveTab] = useState<"shifts" | "settings" | "users">("shifts");
+  const [activeTab, setActiveTab] = useState<"shifts" | "users" | "cleanup">("shifts");
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(false);
-
-  // System Settings state
-  const [showOverrideBadge, setShowOverrideBadge] = useState<boolean>(true);
-  const [enforce30MinLock, setEnforce30MinLock] = useState<boolean>(true);
-  const [updatingSetting, setUpdatingSetting] = useState<boolean>(false);
-  const [updatingLockSetting, setUpdatingLockSetting] = useState<boolean>(false);
 
   // Shift Rotation Settings state
   const [schedules, setSchedules] = useState<ShiftSchedule[]>([]);
@@ -85,6 +85,114 @@ export default function AdminPage() {
   const [userToDelete, setUserToDelete] = useState<User | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
+  // Data Retention / Cleanup state
+  const [cleanupStartDate, setCleanupStartDate] = useState("2026-01-01");
+  const [cleanupEndDate, setCleanupEndDate] = useState("2026-08-31");
+  const [scanningRecords, setScanningRecords] = useState(false);
+  const [purgePreview, setPurgePreview] = useState<{
+    workDaysCount: number;
+    entriesCount: number;
+    overridesCount: number;
+    earliestDate: string | null;
+    latestDate: string | null;
+  } | null>(null);
+  const [showPurgeModal, setShowPurgeModal] = useState(false);
+  const [purgeConfirmText, setPurgeConfirmText] = useState("");
+  const [purging, setPurging] = useState(false);
+  const [purgeResult, setPurgeResult] = useState<{
+    message: string;
+    deletedDays: number;
+    deletedEntries: number;
+  } | null>(null);
+
+  const handleScanRange = async () => {
+    if (!cleanupStartDate || !cleanupEndDate) {
+      toast.error("Please select both start date and end date");
+      return;
+    }
+    if (cleanupStartDate > cleanupEndDate) {
+      toast.error("Start date cannot be after end date");
+      return;
+    }
+    setScanningRecords(true);
+    setPurgeResult(null);
+    try {
+      const res = await fetch(`/api/admin?type=purge_preview&startDate=${cleanupStartDate}&endDate=${cleanupEndDate}`);
+      const data = await res.json();
+      if (res.ok && data.preview) {
+        setPurgePreview(data.preview);
+        if (data.preview.workDaysCount === 0) {
+          toast.success("Scan complete: No stored records found in this date range.");
+        } else {
+          toast.success(`Found ${data.preview.workDaysCount} work day(s) and ${data.preview.entriesCount} output records.`);
+        }
+      } else {
+        toast.error(data.error || "Failed to scan database");
+      }
+    } catch {
+      toast.error("Network error scanning database");
+    } finally {
+      setScanningRecords(false);
+    }
+  };
+
+  const handleExecutePurge = async () => {
+    if (purgeConfirmText !== "DELETE") {
+      toast.error("Please type DELETE in capital letters to confirm");
+      return;
+    }
+    setPurging(true);
+    try {
+      const res = await fetch("/api/admin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "PURGE_DATE_RANGE",
+          startDate: cleanupStartDate,
+          endDate: cleanupEndDate,
+          confirmation: "DELETE",
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        toast.success(data.message || "Database cleaned successfully!");
+        setPurgeResult({
+          message: data.message,
+          deletedDays: data.deletedDays,
+          deletedEntries: data.deletedEntries,
+        });
+        setPurgePreview(null);
+        setShowPurgeModal(false);
+        setPurgeConfirmText("");
+      } else {
+        toast.error(data.error || "Failed to purge database");
+      }
+    } catch {
+      toast.error("Network error purging database");
+    } finally {
+      setPurging(false);
+    }
+  };
+
+  const setPresetRange = (preset: "jan_aug_2026" | "3_months" | "6_months" | "year_2025") => {
+    setPurgeResult(null);
+    setPurgePreview(null);
+    const today = new Date();
+    if (preset === "jan_aug_2026") {
+      setCleanupStartDate("2026-01-01");
+      setCleanupEndDate("2026-08-31");
+    } else if (preset === "3_months") {
+      setCleanupStartDate("2025-01-01");
+      setCleanupEndDate(format(subMonths(today, 3), "yyyy-MM-dd"));
+    } else if (preset === "6_months") {
+      setCleanupStartDate("2025-01-01");
+      setCleanupEndDate(format(subMonths(today, 6), "yyyy-MM-dd"));
+    } else if (preset === "year_2025") {
+      setCleanupStartDate("2025-01-01");
+      setCleanupEndDate("2025-12-31");
+    }
+  };
+
   useEffect(() => {
     if (status === "authenticated") {
       const role = session?.user?.role;
@@ -99,91 +207,11 @@ export default function AdminPage() {
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
       const tab = params.get("tab");
-      if (tab === "users" || tab === "shifts" || tab === "settings") {
+      if (tab === "users" || tab === "shifts" || tab === "cleanup") {
         setActiveTab(tab);
       }
     }
   }, []);
-
-  const fetchSettings = async () => {
-    setLoading(true);
-    try {
-      const res = await fetch("/api/admin?type=settings");
-      const data = await res.json();
-      if (data?.settings) {
-        if (typeof data.settings.showOverrideBadge === "boolean") {
-          setShowOverrideBadge(data.settings.showOverrideBadge);
-        }
-        if (typeof data.settings.enforce30MinLock === "boolean") {
-          setEnforce30MinLock(data.settings.enforce30MinLock);
-        }
-      }
-    } catch {
-      toast.error("Failed to load settings");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleToggleOverrideBadge = async (newValue: boolean) => {
-    setUpdatingSetting(true);
-    try {
-      const res = await fetch("/api/admin", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "UPDATE_SETTING",
-          key: "SHOW_OVERRIDE_BADGE",
-          value: String(newValue),
-        }),
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        setShowOverrideBadge(newValue);
-        toast.success(
-          newValue
-            ? "Target Override badges are now visible in Daily Input"
-            : "Target Override badges are now hidden in Daily Input"
-        );
-      } else {
-        toast.error(data.error || "Failed to update setting");
-      }
-    } catch {
-      toast.error("Network error updating setting");
-    } finally {
-      setUpdatingSetting(false);
-    }
-  };
-
-  const handleToggleLockSetting = async (newValue: boolean) => {
-    setUpdatingLockSetting(true);
-    try {
-      const res = await fetch("/api/admin", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "UPDATE_SETTING",
-          key: "ENFORCE_30MIN_LOCK",
-          value: String(newValue),
-        }),
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        setEnforce30MinLock(newValue);
-        toast.success(
-          newValue
-            ? "30-Minute Entry Lock is now ENFORCED (operators must submit within 30m of slot end)"
-            : "30-Minute Entry Lock is now DISABLED (operators can enter output anytime)"
-        );
-      } else {
-        toast.error(data.error || "Failed to update setting");
-      }
-    } catch {
-      toast.error("Network error updating setting");
-    } finally {
-      setUpdatingLockSetting(false);
-    }
-  };
 
   const fetchShifts = async () => {
     setLoading(true);
@@ -214,7 +242,6 @@ export default function AdminPage() {
 
   useEffect(() => {
     if (activeTab === "shifts") fetchShifts();
-    else if (activeTab === "settings") fetchSettings();
     else fetchUsers();
   }, [activeTab]);
 
@@ -372,7 +399,6 @@ export default function AdminPage() {
     const colors: Record<string, string> = {
       ADMIN: "bg-red-100 text-red-700",
       MANAGER: "bg-purple-100 text-purple-700",
-      SUPERVISOR: "bg-amber-100 text-amber-700",
       OPERATOR: "bg-blue-100 text-blue-700",
     };
     return (
@@ -420,7 +446,7 @@ export default function AdminPage() {
       <div className="w-full sm:w-fit grid grid-cols-1 sm:grid-cols-3 gap-1 bg-slate-200/80 rounded-2xl p-1 mb-6">
         <button
           onClick={() => setActiveTab("shifts")}
-          className={`flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all min-h-[42px] cursor-pointer ${
+          className={`flex items-center justify-center gap-1.5 sm:gap-2 px-4 sm:px-6 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all min-h-[42px] cursor-pointer ${
             activeTab === "shifts"
               ? "bg-white text-slate-900 shadow-xs"
               : "text-slate-600 hover:text-slate-900"
@@ -430,19 +456,8 @@ export default function AdminPage() {
           <span className="truncate">Shift Duties</span>
         </button>
         <button
-          onClick={() => setActiveTab("settings")}
-          className={`flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all min-h-[42px] cursor-pointer ${
-            activeTab === "settings"
-              ? "bg-white text-slate-900 shadow-xs"
-              : "text-slate-600 hover:text-slate-900"
-          }`}
-        >
-          <Sliders size={16} className="shrink-0" />
-          <span className="truncate">System Settings</span>
-        </button>
-        <button
           onClick={() => setActiveTab("users")}
-          className={`flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all min-h-[42px] cursor-pointer ${
+          className={`flex items-center justify-center gap-1.5 sm:gap-2 px-4 sm:px-6 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all min-h-[42px] cursor-pointer ${
             activeTab === "users"
               ? "bg-white text-slate-900 shadow-xs"
               : "text-slate-600 hover:text-slate-900"
@@ -450,6 +465,17 @@ export default function AdminPage() {
         >
           <Users size={16} className="shrink-0" />
           <span className="truncate">Users &amp; Roles</span>
+        </button>
+        <button
+          onClick={() => setActiveTab("cleanup")}
+          className={`flex items-center justify-center gap-1.5 sm:gap-2 px-4 sm:px-6 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all min-h-[42px] cursor-pointer ${
+            activeTab === "cleanup"
+              ? "bg-white text-amber-900 shadow-xs"
+              : "text-slate-600 hover:text-slate-900"
+          }`}
+        >
+          <Database size={16} className="shrink-0 text-amber-600" />
+          <span className="truncate">Data Cleanup &amp; Storage</span>
         </button>
       </div>
 
@@ -468,7 +494,7 @@ export default function AdminPage() {
                     Weekly Shift Duty Rotation Policy
                   </h3>
                   <p className="text-xs sm:text-sm text-slate-600 mt-0.5 max-w-2xl">
-                    The factory operates 2 shifts: <strong>Morning (05:30 – 13:30)</strong> and <strong>Evening (13:30 – 21:30)</strong>.
+                    The factory operates 2 shifts: <strong>Morning (05:30 AM – 01:30 PM)</strong> and <strong>Evening (01:30 PM – 09:30 PM)</strong>.
                     Duties alternate weekly between <strong>Shift A</strong> and <strong>Shift B</strong>.
                     The system automatically sets defaults for all current and upcoming weeks.
                   </p>
@@ -516,7 +542,7 @@ export default function AdminPage() {
                       </div>
                       <div>
                         <p className="text-[10px] font-bold uppercase tracking-wider text-amber-800">
-                          Morning Shift (05:30 – 13:30)
+                          Morning Shift (05:30 AM – 01:30 PM)
                         </p>
                         <p className="text-base font-black text-slate-900">
                           Shift {currentWeek.morningTeam}
@@ -531,7 +557,7 @@ export default function AdminPage() {
                       </div>
                       <div>
                         <p className="text-[10px] font-bold uppercase tracking-wider text-indigo-800">
-                          Evening Shift (13:30 – 21:30)
+                          Evening Shift (01:30 PM – 09:30 PM)
                         </p>
                         <p className="text-base font-black text-slate-900">
                           Shift {currentWeek.eveningTeam}
@@ -573,14 +599,14 @@ export default function AdminPage() {
               </div>
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
+            <div className="overflow-x-auto touch-scroll">
+              <table className="w-full min-w-[640px] text-left border-collapse">
                 <thead>
                   <tr className="bg-slate-50/80 border-b border-slate-200/80 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
                     <th className="py-3 px-4 sm:px-6">Week Range</th>
                     <th className="py-3 px-4">Status</th>
-                    <th className="py-3 px-4">Morning Duty (05:30 – 13:30)</th>
-                    <th className="py-3 px-4">Evening Duty (13:30 – 21:30)</th>
+                    <th className="py-3 px-4">Morning Duty (05:30 AM – 01:30 PM)</th>
+                    <th className="py-3 px-4">Evening Duty (01:30 PM – 09:30 PM)</th>
                     <th className="py-3 px-4 text-right">Admin Action</th>
                   </tr>
                 </thead>
@@ -729,238 +755,6 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* ─── System Settings Tab ───────────────────────────────────────── */}
-      {activeTab === "settings" && (
-        <div className="space-y-6">
-          {/* Top Banner */}
-          <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-blue-50 via-slate-50 to-indigo-50/50 border border-blue-200/80 shadow-xs">
-            <div className="flex items-start gap-3">
-              <div className="w-10 h-10 rounded-xl bg-blue-600/15 flex items-center justify-center text-blue-700 shrink-0 mt-0.5">
-                <Sliders size={20} />
-              </div>
-              <div>
-                <h3 className="font-bold text-slate-800 text-sm sm:text-base">
-                  System Preferences &amp; Daily Input Configuration
-                </h3>
-                <p className="text-xs sm:text-sm text-slate-600 mt-0.5 max-w-2xl">
-                  Configure operational display behaviors and operator interface indicators for the MD Carton line.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* Setting Card: Target Override Display Toggle */}
-          <div className="bg-white rounded-2xl p-5 sm:p-6 border border-slate-200/90 shadow-sm">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-slate-100">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <h4 className="font-extrabold text-slate-900 text-base sm:text-lg">
-                    Show Target Override Badge in Daily Input
-                  </h4>
-                  <span
-                    className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-black uppercase tracking-wider ${
-                      showOverrideBadge
-                        ? "bg-emerald-100 text-emerald-800"
-                        : "bg-slate-100 text-slate-600"
-                    }`}
-                  >
-                    {showOverrideBadge ? "Shown (Active)" : "Hidden (Clean Mode)"}
-                  </span>
-                </div>
-                <p className="text-xs sm:text-sm text-slate-500 max-w-xl">
-                  When a target has been modified (override), an amber <strong>Override</strong> tag normally appears next to the target in the Daily Input table and cards. As an administrator, you can turn off this display option so operators only see standard clean numbers.
-                </p>
-              </div>
-
-              {/* Interactive Toggle Switch */}
-              <div className="flex items-center gap-3 shrink-0">
-                <button
-                  type="button"
-                  id="toggle-override-badge-btn"
-                  onClick={() => handleToggleOverrideBadge(!showOverrideBadge)}
-                  disabled={updatingSetting}
-                  className={`relative inline-flex h-8 w-16 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
-                    showOverrideBadge ? "bg-emerald-600" : "bg-slate-300"
-                  } ${updatingSetting ? "opacity-60 cursor-wait" : ""}`}
-                  role="switch"
-                  aria-checked={showOverrideBadge}
-                >
-                  <span
-                    aria-hidden="true"
-                    className={`pointer-events-none inline-block h-7 w-7 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
-                      showOverrideBadge ? "translate-x-8" : "translate-x-0"
-                    }`}
-                  />
-                </button>
-                <span className="text-xs font-bold text-slate-700 min-w-[55px]">
-                  {updatingSetting ? "Saving..." : showOverrideBadge ? "Visible" : "Hidden"}
-                </span>
-              </div>
-            </div>
-
-            {/* Live Visual Comparison Box */}
-            <div className="mt-5 pt-1">
-              <h5 className="text-xs font-bold text-slate-600 uppercase tracking-wider mb-3">
-                Live Preview: How Daily Input Slots Appear to Operators
-              </h5>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Preview Box */}
-                <div
-                  className={`p-4 rounded-xl border-2 transition-all ${
-                    showOverrideBadge
-                      ? "border-emerald-500/80 bg-emerald-50/20 shadow-xs"
-                      : "border-blue-500/80 bg-blue-50/20 shadow-xs"
-                  }`}
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-[11px] font-black uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
-                      <span className={`w-2 h-2 rounded-full ${showOverrideBadge ? "bg-emerald-500" : "bg-blue-500"}`}></span>
-                      Current Operator View
-                    </span>
-                    <span className="text-[10px] text-slate-400 font-semibold">Slot #1 (05:30 – 06:30)</span>
-                  </div>
-
-                  <div className="bg-white rounded-lg p-3 border border-slate-200 shadow-xs flex items-center justify-between">
-                    <div>
-                      <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">
-                        Target
-                      </span>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        <span className="text-lg font-black text-slate-800">140</span>
-                        {showOverrideBadge && (
-                          <span className="badge badge-override text-[10px] py-0 px-1.5 animate-fade-in">
-                            Override
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">
-                        Actual
-                      </span>
-                      <span className="text-base font-black text-slate-800">142</span>
-                    </div>
-                    <div className="text-right">
-                      <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">
-                        Variance
-                      </span>
-                      <span className="text-sm font-black text-emerald-600">+2</span>
-                    </div>
-                  </div>
-                  <p className="text-[11px] text-slate-500 mt-2">
-                    {showOverrideBadge
-                      ? "The amber 'Override' badge is currently displayed to indicate this slot target was modified."
-                      : "The target is displayed cleanly as 140 cartons with NO override badge shown."}
-                  </p>
-                </div>
-
-                {/* Explanation Card */}
-                <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/60 flex flex-col justify-between">
-                  <div>
-                    <h6 className="text-xs font-bold text-slate-800 flex items-center gap-1.5 mb-1.5">
-                      <CheckCircle2 size={14} className="text-blue-600 shrink-0" />
-                      Guaranteed Calculation Integrity
-                    </h6>
-                    <p className="text-xs text-slate-600 leading-relaxed">
-                      Turning off the override badge only affects the visual badge tag on the Daily Input page.
-                      The customized target (e.g. 140), hourly variance, efficiency calculations, and shift cumulative performance remain completely intact and accurate.
-                    </p>
-                  </div>
-                  <div className="mt-3 pt-3 border-t border-slate-200/80 flex items-center justify-between text-xs">
-                    <span className="text-slate-500">Quick action:</span>
-                    <button
-                      onClick={() => handleToggleOverrideBadge(!showOverrideBadge)}
-                      disabled={updatingSetting}
-                      className="text-blue-600 hover:text-blue-700 font-bold hover:underline cursor-pointer disabled:opacity-50"
-                    >
-                      {showOverrideBadge ? "Hide Override Badge" : "Show Override Badge"}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Setting Card: 30-Minute Entry Lock Window Toggle */}
-          <div className="bg-white rounded-2xl p-5 sm:p-6 border border-slate-200/90 shadow-sm mt-5">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-slate-100">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <h4 className="font-extrabold text-slate-900 text-base sm:text-lg">
-                    30-Minute Output Entry Lock Window
-                  </h4>
-                  <span
-                    className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-black uppercase tracking-wider ${
-                      enforce30MinLock
-                        ? "bg-emerald-100 text-emerald-800"
-                        : "bg-slate-100 text-slate-600"
-                    }`}
-                  >
-                    {enforce30MinLock ? "Enforced (Active)" : "Disabled (Open Access)"}
-                  </span>
-                </div>
-                <p className="text-xs sm:text-sm text-slate-500 max-w-xl">
-                  Require carton counts for each hourly slot to be submitted within <strong>30 minutes</strong> of slot completion. After 30 minutes, slots automatically lock to prevent back-dated alterations. Admins and Managers retain override access to update any slot.
-                </p>
-              </div>
-
-              {/* Interactive Toggle Switch */}
-              <div className="flex items-center gap-3 shrink-0">
-                <button
-                  type="button"
-                  id="toggle-lock-window-btn"
-                  onClick={() => handleToggleLockSetting(!enforce30MinLock)}
-                  disabled={updatingLockSetting}
-                  className={`relative inline-flex h-8 w-16 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
-                    enforce30MinLock ? "bg-emerald-600" : "bg-slate-300"
-                  } ${updatingLockSetting ? "opacity-60 cursor-wait" : ""}`}
-                  role="switch"
-                  aria-checked={enforce30MinLock}
-                >
-                  <span
-                    aria-hidden="true"
-                    className={`pointer-events-none inline-block h-7 w-7 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
-                      enforce30MinLock ? "translate-x-8" : "translate-x-0"
-                    }`}
-                  />
-                </button>
-                <span className="text-xs font-bold text-slate-700 min-w-[65px]">
-                  {updatingLockSetting ? "Saving..." : enforce30MinLock ? "Enforced" : "Disabled"}
-                </span>
-              </div>
-            </div>
-
-            {/* Informational Guidance Box */}
-            <div className="mt-5 pt-1">
-              <h5 className="text-xs font-bold text-slate-600 uppercase tracking-wider mb-3">
-                Operator Experience & Safeguards
-              </h5>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/50">
-                  <div className="flex items-center gap-2 mb-1.5 text-slate-800 font-bold text-xs">
-                    <Clock size={15} className="text-blue-600" />
-                    <span>Countdown Timer for Active Slots</span>
-                  </div>
-                  <p className="text-xs text-slate-600 leading-relaxed">
-                    When a slot ends (e.g. at 06:30), operators see a live countdown badge: <strong>&ldquo;Closes in 28m&rdquo;</strong>, giving them a clear visual deadline to log the carton count before it locks at 07:00.
-                  </p>
-                </div>
-
-                <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/50">
-                  <div className="flex items-center gap-2 mb-1.5 text-slate-800 font-bold text-xs">
-                    <Lock size={15} className="text-amber-600" />
-                    <span>Admin & Manager Override</span>
-                  </div>
-                  <p className="text-xs text-slate-600 leading-relaxed">
-                    If an input is delayed due to network failure, machine stoppage, or supervisor review, Admins and Managers can edit locked slots at any time.
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* ─── Users Tab ───────────────────────────────────────────────── */}
       {activeTab === "users" && (
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200/90 overflow-hidden">
@@ -1054,10 +848,9 @@ export default function AdminPage() {
                     onChange={(e) => setFormRole(e.target.value)}
                     className="w-full h-10 px-3 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none bg-white font-medium"
                   >
-                    <option value="OPERATOR">Operator (Input Only)</option>
-                    <option value="SUPERVISOR">Supervisor (Input + Overrides)</option>
+                    <option value="OPERATOR">Operator / Staff (Daily Input & Operations)</option>
                     <option value="MANAGER">Manager (Full Access)</option>
-                    <option value="ADMIN">Admin (Full Access)</option>
+                    <option value="ADMIN">Admin (Full System Access)</option>
                   </select>
                 </div>
                 <button
@@ -1182,7 +975,7 @@ export default function AdminPage() {
 
               {/* ─── DESKTOP/TABLET TABLE (>= 640px) ─────────────────────── */}
               <div className="hidden sm:block overflow-x-auto touch-scroll">
-                <table className="data-table text-xs sm:text-sm">
+                <table className="data-table text-xs sm:text-sm min-w-[580px]">
                   <thead>
                     <tr>
                       <th>Name</th>
@@ -1287,6 +1080,287 @@ export default function AdminPage() {
             </div>
           </>
         )}
+        </div>
+      )}
+
+      {/* ─── Data Cleanup & Storage Retention Tab ─────────────────────────── */}
+      {activeTab === "cleanup" && (
+        <div className="space-y-6">
+          {/* Neon Cloud Optimization & Usage Policy Banner */}
+          <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-amber-50 via-orange-50/60 to-red-50/40 border border-amber-200/80 shadow-xs">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-500/15 flex items-center justify-center text-amber-700 shrink-0 mt-0.5">
+                <Database size={20} />
+              </div>
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="font-bold text-slate-800 text-sm sm:text-base">
+                    Database Retention &amp; Storage Cleanup
+                  </h3>
+                  <span className="px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-amber-100 text-amber-800 border border-amber-300">
+                    Neon Free Tier (0.5 GB Storage / 5 GB Transfer)
+                  </span>
+                </div>
+                <p className="text-xs sm:text-sm text-slate-600 mt-1 max-w-3xl leading-relaxed">
+                  To keep PostgreSQL storage and monthly network egress far below Neon free tier thresholds, use this panel to permanently delete historical completed periods (e.g. past months).
+                  Deleting a work day automatically cascades and purges all associated hourly carton entries and target overrides cleanly from the database.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Purge Success Banner */}
+          {purgeResult && (
+            <div className="p-4 sm:p-5 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-900 flex items-start gap-3 shadow-xs animate-fade-in">
+              <CheckCircle2 size={20} className="text-emerald-600 shrink-0 mt-0.5" />
+              <div>
+                <h4 className="font-bold text-sm">Database Cleanup Successful!</h4>
+                <p className="text-xs sm:text-sm text-emerald-800 mt-0.5">{purgeResult.message}</p>
+                <div className="flex flex-wrap gap-4 mt-2 text-xs font-bold text-emerald-700">
+                  <span>✓ {purgeResult.deletedDays} work day(s) permanently deleted</span>
+                  <span>✓ ~{purgeResult.deletedEntries} hourly carton records freed</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Period Selector Card */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-5 sm:p-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+              <div>
+                <h3 className="font-bold text-slate-800 text-base flex items-center gap-2">
+                  <Calendar size={18} className="text-blue-600" />
+                  <span>Select Historical Period to Clean</span>
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Select start and end dates to scan records and purge them from the database
+                </p>
+              </div>
+
+              {/* Quick Presets */}
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-xs text-slate-400 font-semibold mr-1">Presets:</span>
+                <button
+                  type="button"
+                  onClick={() => setPresetRange("jan_aug_2026")}
+                  className="px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors cursor-pointer"
+                >
+                  Jan – Aug 2026
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPresetRange("3_months")}
+                  className="px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors cursor-pointer"
+                >
+                  Older than 3 Mo
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPresetRange("6_months")}
+                  className="px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors cursor-pointer"
+                >
+                  Older than 6 Mo
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPresetRange("year_2025")}
+                  className="px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors cursor-pointer"
+                >
+                  Year 2025
+                </button>
+              </div>
+            </div>
+
+            {/* Date Inputs Form */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 pt-2">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  From Date (Start of Range)
+                </label>
+                <input
+                  type="date"
+                  value={cleanupStartDate}
+                  onChange={(e) => {
+                    setCleanupStartDate(e.target.value);
+                    setPurgePreview(null);
+                    setPurgeResult(null);
+                  }}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50/50 text-slate-800 text-sm font-semibold focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all cursor-pointer"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  To Date (End of Range)
+                </label>
+                <input
+                  type="date"
+                  value={cleanupEndDate}
+                  onChange={(e) => {
+                    setCleanupEndDate(e.target.value);
+                    setPurgePreview(null);
+                    setPurgeResult(null);
+                  }}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50/50 text-slate-800 text-sm font-semibold focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all cursor-pointer"
+                />
+              </div>
+
+              <div className="flex items-end">
+                <button
+                  type="button"
+                  onClick={handleScanRange}
+                  disabled={scanningRecords}
+                  className="w-full inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm shadow-sm transition-all disabled:opacity-50 cursor-pointer min-h-[42px]"
+                >
+                  <Search size={16} className={scanningRecords ? "animate-spin" : ""} />
+                  <span>{scanningRecords ? "Scanning Database..." : "Scan Database Records"}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Scan Results Card */}
+          {purgePreview && (
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-5 sm:p-6 animate-fade-in">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5 border-b border-slate-100 pb-4">
+                <div>
+                  <h4 className="font-bold text-slate-800 text-base flex items-center gap-2">
+                    <HardDrive size={18} className="text-amber-600" />
+                    <span>Scan Results for Selected Period</span>
+                  </h4>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Range: <strong className="text-slate-700">{cleanupStartDate}</strong> to <strong className="text-slate-700">{cleanupEndDate}</strong>
+                  </p>
+                </div>
+
+                {purgePreview.workDaysCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPurgeConfirmText("");
+                      setShowPurgeModal(true);
+                    }}
+                    className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-sm shadow-xs transition-all cursor-pointer"
+                  >
+                    <Trash2 size={16} />
+                    <span>Delete All Data in this Period</span>
+                  </button>
+                )}
+              </div>
+
+              {purgePreview.workDaysCount === 0 ? (
+                <div className="text-center py-8 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                  <CheckCircle2 size={36} className="text-emerald-500 mx-auto mb-2" />
+                  <p className="text-sm font-bold text-slate-700">No Data Found in This Range</p>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    There are no working days or carton records stored between {cleanupStartDate} and {cleanupEndDate}.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div className="p-4 rounded-xl bg-amber-50/70 border border-amber-200">
+                      <span className="text-xs font-semibold text-amber-700 block mb-1">Working Days to Delete</span>
+                      <span className="text-2xl font-black text-amber-900">{purgePreview.workDaysCount}</span>
+                      <span className="text-xs text-amber-600 font-medium block mt-1">Full production days</span>
+                    </div>
+
+                    <div className="p-4 rounded-xl bg-red-50/70 border border-red-200">
+                      <span className="text-xs font-semibold text-red-700 block mb-1">Production Hourly Entries</span>
+                      <span className="text-2xl font-black text-red-900">{purgePreview.entriesCount.toLocaleString()}</span>
+                      <span className="text-xs text-red-600 font-medium block mt-1">Hourly slot carton rows</span>
+                    </div>
+
+                    <div className="p-4 rounded-xl bg-purple-50/70 border border-purple-200">
+                      <span className="text-xs font-semibold text-purple-700 block mb-1">Target Overrides</span>
+                      <span className="text-2xl font-black text-purple-900">{purgePreview.overridesCount}</span>
+                      <span className="text-xs text-purple-600 font-medium block mt-1">Audit override records</span>
+                    </div>
+                  </div>
+
+                  <div className="p-3.5 rounded-xl bg-amber-50/80 border border-amber-200 flex items-start gap-2.5 text-xs text-amber-800">
+                    <AlertCircle size={16} className="text-amber-600 shrink-0 mt-0.5" />
+                    <span>
+                      Clicking <strong>Delete All Data in this Period</strong> will permanently erase these {purgePreview.workDaysCount} days and ~{purgePreview.entriesCount.toLocaleString()} hourly carton records from your Neon database, freeing storage immediately.
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ─── Safety Confirmation Modal for Permanent Purge ─── */}
+      {showPurgeModal && purgePreview && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fade-in">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-red-200 animate-scale-up">
+            <div className="flex items-start gap-3 mb-4">
+              <div className="w-12 h-12 rounded-2xl bg-red-100 flex items-center justify-center text-red-600 shrink-0">
+                <AlertTriangle size={24} />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-slate-900">
+                  Permanently Delete Selected Period Data?
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  This action cannot be undone. Historical records will be erased completely.
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-red-50 border border-red-200 text-xs text-red-800 space-y-1.5 mb-4">
+              <p className="font-bold">
+                You are about to delete:
+              </p>
+              <ul className="list-disc pl-4 space-y-0.5">
+                <li><strong>{purgePreview.workDaysCount}</strong> working days</li>
+                <li><strong>~{purgePreview.entriesCount.toLocaleString()}</strong> hourly carton output entries</li>
+                <li><strong>{purgePreview.overridesCount}</strong> target override records</li>
+                <li>From <strong>{cleanupStartDate}</strong> to <strong>{cleanupEndDate}</strong></li>
+              </ul>
+              <p className="font-semibold text-red-900 pt-1">
+                This will free database storage on your Neon PostgreSQL free plan.
+              </p>
+            </div>
+
+            <div className="mb-5">
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                Type <span className="font-mono text-red-600 bg-red-50 px-1 py-0.5 rounded border border-red-200">DELETE</span> to confirm:
+              </label>
+              <input
+                type="text"
+                value={purgeConfirmText}
+                onChange={(e) => setPurgeConfirmText(e.target.value)}
+                placeholder="DELETE"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-mono tracking-wider focus:outline-hidden focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                autoFocus
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowPurgeModal(false);
+                  setPurgeConfirmText("");
+                }}
+                disabled={purging}
+                className="px-4 py-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs sm:text-sm font-semibold transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleExecutePurge}
+                disabled={purgeConfirmText !== "DELETE" || purging}
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 disabled:opacity-40 disabled:hover:bg-red-600 text-white text-xs sm:text-sm font-bold shadow-sm transition-all cursor-pointer"
+              >
+                <Trash2 size={16} className={purging ? "animate-spin" : ""} />
+                <span>{purging ? "Deleting Records..." : "Permanently Purge Records"}</span>
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

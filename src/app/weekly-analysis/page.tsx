@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect, useCallback, Suspense } from "react";
+import { useState, useEffect, useCallback, useMemo, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { format, startOfWeek, endOfWeek, eachDayOfInterval } from "date-fns";
 import toast from "react-hot-toast";
@@ -16,7 +17,6 @@ import {
   Moon,
   BarChart3,
   Users,
-  Clock,
 } from "lucide-react";
 import KpiCard from "@/components/kpi-card";
 import WeekPicker from "@/components/week-picker";
@@ -58,6 +58,14 @@ interface DayData {
 function WeeklyAnalysisContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
+  const { data: session, status } = useSession();
+
+  useEffect(() => {
+    if (status === "authenticated" && session?.user?.role === "OPERATOR") {
+      toast.error("Analysis pages are reserved for Managers and Admins.");
+      router.replace("/");
+    }
+  }, [session, status, router]);
 
   const [weekStart, setWeekStart] = useState(() => {
     const urlParam = searchParams.get("week") || searchParams.get("date");
@@ -103,7 +111,6 @@ function WeeklyAnalysisContent() {
   };
   const [dailyData, setDailyData] = useState<DayData[]>([]);
   const [loading, setLoading] = useState(false);
-  const [shiftChartMode, setShiftChartMode] = useState<"team" | "time">("team");
 
   const weekEnd = format(
     endOfWeek(new Date(weekStart + "T00:00:00"), { weekStartsOn: 1 }),
@@ -129,78 +136,115 @@ function WeeklyAnalysisContent() {
         end: new Date(weekEnd + "T00:00:00"),
       });
 
+      const startDateStr = format(days[0], "yyyy-MM-dd");
+      const endDateStr = format(days[days.length - 1], "yyyy-MM-dd");
+
+      const processWorkDay = (day: Date, dateStr: string, workDay: any): DayData | null => {
+        if (!workDay || !workDay.entries) return null;
+        const entries = workDay.entries;
+        const completed = entries.filter((e: any) => e.actualCartons !== null);
+        const totalActual = completed.reduce(
+          (sum: number, e: any) => sum + (e.actualCartons ?? 0),
+          0
+        );
+        const totalTarget = entries.reduce(
+          (sum: number, e: any) => sum + e.targetCartons,
+          0
+        );
+        const morningActual = completed
+          .filter((e: any) => e.timeSlot?.shift === "MORNING")
+          .reduce((sum: number, e: any) => sum + (e.actualCartons ?? 0), 0);
+        const eveningActual = completed
+          .filter((e: any) => e.timeSlot?.shift === "EVENING")
+          .reduce((sum: number, e: any) => sum + (e.actualCartons ?? 0), 0);
+        const belowTarget = completed.filter(
+          (e: any) => e.actualCartons < e.targetCartons
+        ).length;
+
+        const morningTarget = entries
+          .filter((e: any) => e.timeSlot?.shift === "MORNING")
+          .reduce((sum: number, e: any) => sum + e.targetCartons, 0);
+        const eveningTarget = entries
+          .filter((e: any) => e.timeSlot?.shift === "EVENING")
+          .reduce((sum: number, e: any) => sum + e.targetCartons, 0);
+
+        const morningTeam = workDay.morningTeam || "A";
+        const eveningTeam = workDay.eveningTeam || "B";
+
+        const isTeamAMorning = morningTeam === "A";
+        const teamAActual = isTeamAMorning ? morningActual : eveningActual;
+        const teamATarget = isTeamAMorning ? morningTarget : eveningTarget;
+        const teamAPerf = teamATarget > 0 ? (teamAActual / teamATarget) * 100 : 0;
+
+        const teamBActual = !isTeamAMorning ? morningActual : eveningActual;
+        const teamBTarget = !isTeamAMorning ? morningTarget : eveningTarget;
+        const teamBPerf = teamBTarget > 0 ? (teamBActual / teamBTarget) * 100 : 0;
+
+        const achievementPercent = totalTarget > 0 ? (totalActual / totalTarget) * 100 : 0;
+
+        return {
+          date: dateStr,
+          displayDate: format(day, "EEE, MMM d"),
+          totalActual,
+          totalTarget,
+          morningActual,
+          morningTarget,
+          eveningActual,
+          eveningTarget,
+          morningTeam,
+          eveningTeam,
+          completedSlots: completed.length,
+          belowTargetSlots: belowTarget,
+          achievementPercent,
+          teamAActual,
+          teamATarget,
+          teamAPerf,
+          teamBActual,
+          teamBTarget,
+          teamBPerf,
+        };
+      };
+
+      // Try fast single-request batch fetch
+      const batchRes = await fetch(`/api/work-days?startDate=${startDateStr}&endDate=${endDateStr}`);
+      const batchData = await batchRes.json();
+
       const results: DayData[] = [];
 
-      for (const day of days) {
-        const dateStr = format(day, "yyyy-MM-dd");
-        const res = await fetch(`/api/work-days?date=${dateStr}`);
-        const data = await res.json();
+      if (batchRes.ok && Array.isArray(batchData.workDays)) {
+        const workDayMap = new Map<string, any>();
+        for (const wd of batchData.workDays) {
+          const wdDate = typeof wd.workDate === "string" ? wd.workDate.split("T")[0] : format(new Date(wd.workDate), "yyyy-MM-dd");
+          workDayMap.set(wdDate, wd);
+        }
 
-        if (data.exists && data.workDay) {
-          const entries = data.workDay.entries;
-          const completed = entries.filter(
-            (e: any) => e.actualCartons !== null
-          );
-          const totalActual = completed.reduce(
-            (sum: number, e: any) => sum + (e.actualCartons ?? 0),
-            0
-          );
-          const totalTarget = entries.reduce(
-            (sum: number, e: any) => sum + e.targetCartons,
-            0
-          );
-          const morningActual = completed
-            .filter((e: any) => e.timeSlot.shift === "MORNING")
-            .reduce((sum: number, e: any) => sum + (e.actualCartons ?? 0), 0);
-          const eveningActual = completed
-            .filter((e: any) => e.timeSlot.shift === "EVENING")
-            .reduce((sum: number, e: any) => sum + (e.actualCartons ?? 0), 0);
-          const belowTarget = completed.filter(
-            (e: any) => e.actualCartons < e.targetCartons
-          ).length;
-
-          const morningTarget = entries
-            .filter((e: any) => e.timeSlot.shift === "MORNING")
-            .reduce((sum: number, e: any) => sum + e.targetCartons, 0);
-          const eveningTarget = entries
-            .filter((e: any) => e.timeSlot.shift === "EVENING")
-            .reduce((sum: number, e: any) => sum + e.targetCartons, 0);
-
-          const morningTeam = data.workDay.morningTeam || "A";
-          const eveningTeam = data.workDay.eveningTeam || "B";
-
-          const isTeamAMorning = morningTeam === "A";
-          const teamAActual = isTeamAMorning ? morningActual : eveningActual;
-          const teamATarget = isTeamAMorning ? morningTarget : eveningTarget;
-          const teamAPerf = teamATarget > 0 ? (teamAActual / teamATarget) * 100 : 0;
-
-          const teamBActual = !isTeamAMorning ? morningActual : eveningActual;
-          const teamBTarget = !isTeamAMorning ? morningTarget : eveningTarget;
-          const teamBPerf = teamBTarget > 0 ? (teamBActual / teamBTarget) * 100 : 0;
-
-          const achievementPercent = totalTarget > 0 ? (totalActual / totalTarget) * 100 : 0;
-
-          results.push({
-            date: dateStr,
-            displayDate: format(day, "EEE, MMM d"),
-            totalActual,
-            totalTarget,
-            morningActual,
-            morningTarget,
-            eveningActual,
-            eveningTarget,
-            morningTeam,
-            eveningTeam,
-            completedSlots: completed.length,
-            belowTargetSlots: belowTarget,
-            achievementPercent,
-            teamAActual,
-            teamATarget,
-            teamAPerf,
-            teamBActual,
-            teamBTarget,
-            teamBPerf,
-          });
+        for (const day of days) {
+          const dateStr = format(day, "yyyy-MM-dd");
+          const wd = workDayMap.get(dateStr);
+          if (wd) {
+            const parsed = processWorkDay(day, dateStr, wd);
+            if (parsed) results.push(parsed);
+          }
+        }
+      } else {
+        // Fallback: Parallel fetches with Promise.all
+        const fetchedDays = await Promise.all(
+          days.map(async (day) => {
+            const dateStr = format(day, "yyyy-MM-dd");
+            try {
+              const res = await fetch(`/api/work-days?date=${dateStr}`);
+              const data = await res.json();
+              if (data.exists && data.workDay) {
+                return processWorkDay(day, dateStr, data.workDay);
+              }
+            } catch {
+              return null;
+            }
+            return null;
+          })
+        );
+        for (const fd of fetchedDays) {
+          if (fd) results.push(fd);
         }
       }
 
@@ -216,64 +260,84 @@ function WeeklyAnalysisContent() {
     fetchWeekData();
   }, [fetchWeekData]);
 
-  // Calculate weekly KPIs
-  const workingDays = dailyData.length;
-  const weeklyTotalActual = dailyData.reduce((sum, d) => sum + d.totalActual, 0);
-  const weeklyTotalTarget = dailyData.reduce((sum, d) => sum + d.totalTarget, 0);
-  const weeklyAchievementPercent =
-    weeklyTotalTarget > 0
-      ? (weeklyTotalActual / weeklyTotalTarget) * 100
-      : 0;
-  const avgDailyActual =
-    workingDays > 0 ? Math.round(weeklyTotalActual / workingDays) : 0;
-  const bestDay =
-    dailyData.length > 0
-      ? dailyData.reduce((best, d) =>
-          d.totalActual > best.totalActual ? d : best
-        )
-      : null;
-  const totalBelowTargetSlots = dailyData.reduce(
-    (sum, d) => sum + d.belowTargetSlots,
-    0
-  );
-  const weeklyMorning = dailyData.reduce((sum, d) => sum + d.morningActual, 0);
-  const weeklyEvening = dailyData.reduce((sum, d) => sum + d.eveningActual, 0);
+  // Memoize weekly KPIs calculations for smooth UI performance
+  const {
+    workingDays,
+    weeklyTotalActual,
+    weeklyTotalTarget,
+    weeklyAchievementPercent,
+    avgDailyActual,
+    bestDay,
+    totalBelowTargetSlots,
+    weeklyMorning,
+    weeklyEvening,
+    weeklyTeamAActual,
+    weeklyTeamATarget,
+    weeklyTeamBActual,
+    weeklyTeamBTarget,
+    weeklyTeamAPerf,
+    weeklyTeamBPerf,
+    weeklyTeamAVariance,
+    weeklyTeamBVariance,
+  } = useMemo(() => {
+    const wDays = dailyData.length;
+    const totalActual = dailyData.reduce((sum, d) => sum + d.totalActual, 0);
+    const totalTarget = dailyData.reduce((sum, d) => sum + d.totalTarget, 0);
+    const achievePct = totalTarget > 0 ? (totalActual / totalTarget) * 100 : 0;
+    const avgDaily = wDays > 0 ? Math.round(totalActual / wDays) : 0;
+    const best = dailyData.length > 0 ? dailyData.reduce((b, d) => (d.totalActual > b.totalActual ? d : b)) : null;
+    const belowSlots = dailyData.reduce((sum, d) => sum + d.belowTargetSlots, 0);
+    const morningTot = dailyData.reduce((sum, d) => sum + d.morningActual, 0);
+    const eveningTot = dailyData.reduce((sum, d) => sum + d.eveningActual, 0);
 
-  // Shift Team Aggregation across the week (Shift A vs Shift B)
-  let weeklyTeamAActual = 0;
-  let weeklyTeamATarget = 0;
-  let weeklyTeamBActual = 0;
-  let weeklyTeamBTarget = 0;
+    let teamAAct = 0;
+    let teamATgt = 0;
+    let teamBAct = 0;
+    let teamBTgt = 0;
 
-  dailyData.forEach((d) => {
-    if (d.morningTeam === "A") {
-      weeklyTeamAActual += d.morningActual;
-      weeklyTeamATarget += d.morningTarget;
-    } else if (d.morningTeam === "B") {
-      weeklyTeamBActual += d.morningActual;
-      weeklyTeamBTarget += d.morningTarget;
-    }
+    dailyData.forEach((d) => {
+      if (d.morningTeam === "A") {
+        teamAAct += d.morningActual;
+        teamATgt += d.morningTarget;
+      } else if (d.morningTeam === "B") {
+        teamBAct += d.morningActual;
+        teamBTgt += d.morningTarget;
+      }
 
-    if (d.eveningTeam === "A") {
-      weeklyTeamAActual += d.eveningActual;
-      weeklyTeamATarget += d.eveningTarget;
-    } else if (d.eveningTeam === "B") {
-      weeklyTeamBActual += d.eveningActual;
-      weeklyTeamBTarget += d.eveningTarget;
-    }
-  });
+      if (d.eveningTeam === "A") {
+        teamAAct += d.eveningActual;
+        teamATgt += d.eveningTarget;
+      } else if (d.eveningTeam === "B") {
+        teamBAct += d.eveningActual;
+        teamBTgt += d.eveningTarget;
+      }
+    });
 
-  const weeklyTeamAPerf =
-    weeklyTeamATarget > 0
-      ? (weeklyTeamAActual / weeklyTeamATarget) * 100
-      : 0;
-  const weeklyTeamBPerf =
-    weeklyTeamBTarget > 0
-      ? (weeklyTeamBActual / weeklyTeamBTarget) * 100
-      : 0;
+    const teamAPerf = teamATgt > 0 ? (teamAAct / teamATgt) * 100 : 0;
+    const teamBPerf = teamBTgt > 0 ? (teamBAct / teamBTgt) * 100 : 0;
+    const teamAVar = teamAAct - teamATgt;
+    const teamBVar = teamBAct - teamBTgt;
 
-  const weeklyTeamAVariance = weeklyTeamAActual - weeklyTeamATarget;
-  const weeklyTeamBVariance = weeklyTeamBActual - weeklyTeamBTarget;
+    return {
+      workingDays: wDays,
+      weeklyTotalActual: totalActual,
+      weeklyTotalTarget: totalTarget,
+      weeklyAchievementPercent: achievePct,
+      avgDailyActual: avgDaily,
+      bestDay: best,
+      totalBelowTargetSlots: belowSlots,
+      weeklyMorning: morningTot,
+      weeklyEvening: eveningTot,
+      weeklyTeamAActual: teamAAct,
+      weeklyTeamATarget: teamATgt,
+      weeklyTeamBActual: teamBAct,
+      weeklyTeamBTarget: teamBTgt,
+      weeklyTeamAPerf: teamAPerf,
+      weeklyTeamBPerf: teamBPerf,
+      weeklyTeamAVariance: teamAVar,
+      weeklyTeamBVariance: teamBVar,
+    };
+  }, [dailyData]);
 
   return (
     <div className="w-full pb-10">
@@ -369,7 +433,7 @@ function WeeklyAnalysisContent() {
                   <h3 className="font-bold text-slate-800 text-sm sm:text-base">
                     Processed Cartons vs Target (Week)
                   </h3>
-                  <p className="text-[11px] text-slate-500">Daily actuals vs planned output targets</p>
+                  <p className="text-[11px] text-slate-700 font-bold">Daily actuals vs planned output targets</p>
                 </div>
               </div>
               <div className="w-full h-[260px] sm:h-[300px]">
@@ -428,7 +492,7 @@ function WeeklyAnalysisContent() {
                   <h3 className="font-bold text-slate-800 text-sm sm:text-base">
                     Achievement % Trend
                   </h3>
-                  <p className="text-[11px] text-slate-500">Daily achievement percentage compared to 100% goal</p>
+                  <p className="text-[11px] text-slate-700 font-bold">Daily achievement percentage compared to 100% goal</p>
                 </div>
               </div>
               <div className="w-full h-[260px] sm:h-[300px]">
@@ -490,7 +554,7 @@ function WeeklyAnalysisContent() {
                   <h3 className="font-bold text-slate-800 text-sm sm:text-base">
                     Weekly Team Performance (Shift A vs Shift B)
                   </h3>
-                  <p className="text-xs text-slate-500">
+                  <p className="text-xs text-slate-700 font-semibold">
                     Aggregated weekly output, variances, and exact performance rates across rotating duties
                   </p>
                 </div>
@@ -509,7 +573,7 @@ function WeeklyAnalysisContent() {
                     Weekly Total
                   </span>
                 </div>
-                <div className="grid grid-cols-4 gap-2 mt-3 pt-3 border-t border-blue-200/70 text-center">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3 pt-3 border-t border-blue-200/70 text-center">
                   <div>
                     <p className="text-[10px] text-blue-700 font-bold uppercase">Processed</p>
                     <p className="text-base sm:text-lg font-black text-blue-950">
@@ -552,7 +616,7 @@ function WeeklyAnalysisContent() {
                     Weekly Total
                   </span>
                 </div>
-                <div className="grid grid-cols-4 gap-2 mt-3 pt-3 border-t border-purple-200/70 text-center">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3 pt-3 border-t border-purple-200/70 text-center">
                   <div>
                     <p className="text-[10px] text-purple-700 font-bold uppercase">Processed</p>
                     <p className="text-base sm:text-lg font-black text-purple-950">
@@ -619,41 +683,16 @@ function WeeklyAnalysisContent() {
             )}
           </div>
 
-          {/* Shift Comparison Graph with Interactive View Mode (Full Width) */}
+          {/* Shift Team Comparison — with Shift Time Indicators */}
           <div className="bg-white rounded-2xl shadow-sm border border-slate-200/90 p-4 sm:p-5 mb-6 min-w-0">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
               <div>
                 <h3 className="font-bold text-slate-800 text-sm sm:text-base">
-                  Shift Comparison
+                  Shift Team Comparison
                 </h3>
-                <p className="text-[11px] text-slate-500 mt-0.5">
-                  {shiftChartMode === "team" ? "Shift A Team vs Shift B Team Output" : "Morning Shift vs Evening Shift Output"}
+                <p className="text-[11px] text-slate-700 font-bold mt-0.5">
+                  Shift A vs Shift B — with shift time allocations per day
                 </p>
-              </div>
-              {/* View Mode Toggle Buttons */}
-              <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200/80 self-start sm:self-auto">
-                <button
-                  onClick={() => setShiftChartMode("team")}
-                  className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
-                    shiftChartMode === "team"
-                      ? "bg-white text-blue-700 shadow-xs"
-                      : "text-slate-600 hover:text-slate-900"
-                  }`}
-                >
-                  <Users size={13} />
-                  Shift Teams (A vs B)
-                </button>
-                <button
-                  onClick={() => setShiftChartMode("time")}
-                  className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
-                    shiftChartMode === "time"
-                      ? "bg-white text-amber-700 shadow-xs"
-                      : "text-slate-600 hover:text-slate-900"
-                  }`}
-                >
-                  <Clock size={13} />
-                  Shift Time (M vs E)
-                </button>
               </div>
             </div>
 
@@ -669,68 +708,42 @@ function WeeklyAnalysisContent() {
                         const d = payload[0]?.payload as DayData;
                         if (!d) return null;
 
+                        const teamAShift = d.morningTeam === "A" ? "Morning (05:30 AM – 01:30 PM)" : "Evening (01:30 PM – 09:30 PM)";
+                        const teamBShift = d.morningTeam === "B" ? "Morning (05:30 AM – 01:30 PM)" : "Evening (01:30 PM – 09:30 PM)";
+
                         return (
-                          <div className="bg-white/95 backdrop-blur-md p-3.5 rounded-xl border border-slate-200 shadow-xl text-xs space-y-2 min-w-[220px]">
-                            <div className="border-b border-slate-100 pb-1 flex items-center justify-between">
+                          <div className="bg-white/95 backdrop-blur-md p-3.5 rounded-xl border border-slate-200 shadow-xl text-xs space-y-2 min-w-[240px]">
+                            <div className="border-b border-slate-100 pb-1">
                               <p className="font-bold text-slate-800 text-sm">{label || d.displayDate}</p>
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-700">
-                                {shiftChartMode === "team" ? "By Shift Team" : "By Shift Time"}
-                              </span>
                             </div>
 
-                            {shiftChartMode === "team" ? (
-                              <div className="space-y-1.5 pt-0.5">
-                                <div className="p-2 rounded-lg bg-blue-50/70 border border-blue-200/60">
-                                  <div className="flex justify-between items-center text-blue-900 font-bold">
-                                    <span>Shift A Team ({d.morningTeam === "A" ? "Morning" : "Evening"}):</span>
-                                    <span className="font-black text-blue-700">{d.teamAActual.toLocaleString()}</span>
-                                  </div>
-                                  <div className="flex justify-between items-center text-blue-700 text-[11px] mt-0.5">
-                                    <span>Target: {d.teamATarget.toLocaleString()}</span>
-                                    <span className="font-extrabold">{d.teamAPerf.toFixed(2)}%</span>
-                                  </div>
-                                </div>
-
-                                <div className="p-2 rounded-lg bg-purple-50/70 border border-purple-200/60">
-                                  <div className="flex justify-between items-center text-purple-900 font-bold">
-                                    <span>Shift B Team ({d.morningTeam === "B" ? "Morning" : "Evening"}):</span>
-                                    <span className="font-black text-purple-700">{d.teamBActual.toLocaleString()}</span>
-                                  </div>
-                                  <div className="flex justify-between items-center text-purple-700 text-[11px] mt-0.5">
-                                    <span>Target: {d.teamBTarget.toLocaleString()}</span>
-                                    <span className="font-extrabold">{d.teamBPerf.toFixed(2)}%</span>
-                                  </div>
-                                </div>
+                            <div className="p-2 rounded-lg bg-blue-50/70 border border-blue-200/60">
+                              <div className="flex justify-between items-center text-blue-900 font-bold">
+                                <span>Shift A Team:</span>
+                                <span className="font-black text-blue-700">{d.teamAActual.toLocaleString()}</span>
                               </div>
-                            ) : (
-                              <div className="space-y-1.5 pt-0.5">
-                                <div className="p-2 rounded-lg bg-amber-50/70 border border-amber-200/60">
-                                  <div className="flex justify-between items-center text-amber-900 font-bold">
-                                    <span>Morning (Shift {d.morningTeam}):</span>
-                                    <span className="font-black text-amber-800">{d.morningActual.toLocaleString()}</span>
-                                  </div>
-                                  <div className="flex justify-between items-center text-amber-700 text-[11px] mt-0.5">
-                                    <span>Target: {d.morningTarget.toLocaleString()}</span>
-                                    <span className="font-extrabold">
-                                      {d.morningTarget > 0 ? ((d.morningActual / d.morningTarget) * 100).toFixed(2) : "0.00"}%
-                                    </span>
-                                  </div>
-                                </div>
-
-                                <div className="p-2 rounded-lg bg-indigo-50/70 border border-indigo-200/60">
-                                  <div className="flex justify-between items-center text-indigo-900 font-bold">
-                                    <span>Evening (Shift {d.eveningTeam}):</span>
-                                    <span className="font-black text-indigo-800">{d.eveningActual.toLocaleString()}</span>
-                                  </div>
-                                  <div className="flex justify-between items-center text-indigo-700 text-[11px] mt-0.5">
-                                    <span>Target: {d.eveningTarget.toLocaleString()}</span>
-                                    <span className="font-extrabold">
-                                      {d.eveningTarget > 0 ? ((d.eveningActual / d.eveningTarget) * 100).toFixed(2) : "0.00"}%
-                                    </span>
-                                  </div>
-                                </div>
+                              <p className="text-[10px] text-blue-600 font-semibold mt-0.5">
+                                ⏰ {teamAShift}
+                              </p>
+                              <div className="flex justify-between items-center text-blue-700 text-[11px] mt-0.5">
+                                <span>Target: {d.teamATarget.toLocaleString()}</span>
+                                <span className="font-extrabold">{d.teamAPerf.toFixed(2)}%</span>
                               </div>
-                            )}
+                            </div>
+
+                            <div className="p-2 rounded-lg bg-purple-50/70 border border-purple-200/60">
+                              <div className="flex justify-between items-center text-purple-900 font-bold">
+                                <span>Shift B Team:</span>
+                                <span className="font-black text-purple-700">{d.teamBActual.toLocaleString()}</span>
+                              </div>
+                              <p className="text-[10px] text-purple-600 font-semibold mt-0.5">
+                                ⏰ {teamBShift}
+                              </p>
+                              <div className="flex justify-between items-center text-purple-700 text-[11px] mt-0.5">
+                                <span>Target: {d.teamBTarget.toLocaleString()}</span>
+                                <span className="font-extrabold">{d.teamBPerf.toFixed(2)}%</span>
+                              </div>
+                            </div>
                           </div>
                         );
                       }
@@ -738,59 +751,52 @@ function WeeklyAnalysisContent() {
                     }}
                   />
                   <Legend wrapperStyle={{ fontSize: "12px", paddingTop: "6px" }} />
-                  {shiftChartMode === "team" ? (
-                    <>
-                      <Bar
-                        dataKey="teamAActual"
-                        name="Shift A Team"
-                        fill="#2563eb"
-                        radius={[4, 4, 0, 0]}
-                      />
-                      <Bar
-                        dataKey="teamBActual"
-                        name="Shift B Team"
-                        fill="#9333ea"
-                        radius={[4, 4, 0, 0]}
-                      />
-                    </>
-                  ) : (
-                    <>
-                      <Bar
-                        dataKey="morningActual"
-                        name="Morning Shift"
-                        fill="#f59e0b"
-                        radius={[4, 4, 0, 0]}
-                      />
-                      <Bar
-                        dataKey="eveningActual"
-                        name="Evening Shift"
-                        fill="#6366f1"
-                        radius={[4, 4, 0, 0]}
-                      />
-                    </>
-                  )}
+                  <Bar
+                    dataKey="teamAActual"
+                    name="Shift A Team"
+                    fill="#2563eb"
+                    radius={[4, 4, 0, 0]}
+                  />
+                  <Bar
+                    dataKey="teamBActual"
+                    name="Shift B Team"
+                    fill="#9333ea"
+                    radius={[4, 4, 0, 0]}
+                  />
                 </BarChart>
               </ResponsiveContainer>
             </div>
-            <div className="flex flex-col sm:flex-row items-center justify-around gap-2 pt-3 border-t border-slate-100 text-xs font-semibold">
-              <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-blue-600 inline-block" />
-                <span className="text-slate-600">
-                  Shift A: <strong className="text-slate-900">{weeklyTeamAActual.toLocaleString()}</strong> ({weeklyTeamAPerf.toFixed(2)}%)
-                </span>
+
+            {/* Footer — Weekly totals + dynamic shift time info */}
+            <div className="flex flex-col gap-2 pt-3 border-t border-slate-100 text-xs font-semibold">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-around gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-blue-600 inline-block" />
+                  <span className="text-slate-600">
+                    Shift A: <strong className="text-slate-900">{weeklyTeamAActual.toLocaleString()}</strong> ({weeklyTeamAPerf.toFixed(2)}%)
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-purple-600 inline-block" />
+                  <span className="text-slate-600">
+                    Shift B: <strong className="text-slate-900">{weeklyTeamBActual.toLocaleString()}</strong> ({weeklyTeamBPerf.toFixed(2)}%)
+                  </span>
+                </div>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-purple-600 inline-block" />
-                <span className="text-slate-600">
-                  Shift B: <strong className="text-slate-900">{weeklyTeamBActual.toLocaleString()}</strong> ({weeklyTeamBPerf.toFixed(2)}%)
-                </span>
-              </div>
-              <div className="flex items-center gap-2 text-slate-400 font-normal">
-                <span>•</span>
-                <span>M: {weeklyMorning.toLocaleString()}</span>
-                <span>•</span>
-                <span>E: {weeklyEvening.toLocaleString()}</span>
-              </div>
+
+              {/* Per-day shift time assignments — shows which shift (M/E) each team worked */}
+              {dailyData.length > 0 && (
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-slate-500 font-medium pt-1">
+                  <span className="font-bold text-slate-600 uppercase tracking-wider">Shift Times:</span>
+                  {dailyData.map((d) => (
+                    <span key={d.date} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-50 border border-slate-200/60">
+                      <span className="font-bold text-slate-700">{d.displayDate.split(",")[0]}</span>
+                      <span className="text-blue-600">A={d.morningTeam === "A" ? "M" : "E"}</span>
+                      <span className="text-purple-600">B={d.morningTeam === "B" ? "M" : "E"}</span>
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 
@@ -801,17 +807,17 @@ function WeeklyAnalysisContent() {
                 <h3 className="font-bold text-slate-800 text-base sm:text-lg">
                   Daily Breakdown
                 </h3>
-                <p className="text-xs text-slate-500 mt-0.5">
+                <p className="text-xs text-slate-700 font-semibold mt-0.5">
                   Daily output, target achievement rates, and shift duty team performance
                 </p>
               </div>
-              <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600 self-start sm:self-auto">
+              <span className="text-xs font-black px-2.5 py-1 rounded-full bg-slate-200 text-slate-800 self-start sm:self-auto">
                 {dailyData.length} production day{dailyData.length === 1 ? "" : "s"}
               </span>
             </div>
 
             <div className="overflow-x-auto touch-scroll w-full">
-              <table className="data-table text-xs sm:text-sm w-full">
+              <table className="data-table text-xs sm:text-sm w-full min-w-[640px]">
                 <thead>
                   <tr>
                     <th>Day</th>
@@ -844,19 +850,19 @@ function WeeklyAnalysisContent() {
                       </td>
                       <td className="text-center">
                         {d.morningTeam ? (
-                          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded-md">
-                            <span className="text-blue-700">M:{d.morningTeam}</span>
-                            <span className="text-slate-400">•</span>
-                            <span className="text-purple-700">E:{d.eveningTeam || "—"}</span>
+                          <span className="inline-flex items-center gap-1 text-[11px] font-black text-slate-800 bg-slate-200/80 px-2 py-0.5 rounded-md">
+                            <span className="text-blue-800">M:{d.morningTeam}</span>
+                            <span className="text-slate-500">•</span>
+                            <span className="text-purple-800">E:{d.eveningTeam || "—"}</span>
                           </span>
                         ) : (
-                          <span className="text-xs text-slate-400 font-medium">—</span>
+                          <span className="text-xs text-slate-500 font-bold">—</span>
                         )}
                       </td>
-                      <td className="text-center font-bold text-slate-900">
+                      <td className="text-center font-black text-slate-900">
                         {d.totalActual.toLocaleString()}
                       </td>
-                      <td className="text-center text-slate-500 font-medium">
+                      <td className="text-center text-slate-700 font-bold">
                         {d.totalTarget.toLocaleString()}
                       </td>
                       <td

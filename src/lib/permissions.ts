@@ -28,16 +28,6 @@ export function getPermissions(role: Role): Permissions {
         canViewAudit: false,
         canCloseDay: false,
       };
-    case Role.SUPERVISOR:
-      return {
-        canEnterActuals: true,
-        canEditActuals: true,
-        canOverrideTargets: true,
-        canDeleteReset: true,
-        canManageUsers: false,
-        canViewAudit: true,
-        canCloseDay: true,
-      };
     case Role.MANAGER:
       return {
         canEnterActuals: true,

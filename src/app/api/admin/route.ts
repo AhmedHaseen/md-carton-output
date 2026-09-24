@@ -79,6 +79,60 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ users });
     }
 
+    if (type === "purge_preview") {
+      const startDate = searchParams.get("startDate");
+      const endDate = searchParams.get("endDate");
+
+      if (!startDate || !endDate) {
+        return NextResponse.json(
+          { error: "startDate and endDate are required" },
+          { status: 400 }
+        );
+      }
+
+      const start = new Date(startDate + "T00:00:00.000Z");
+      const end = new Date(endDate + "T23:59:59.999Z");
+
+      const matchingDays = await prisma.workDay.findMany({
+        where: {
+          workDate: {
+            gte: start,
+            lte: end,
+          },
+        },
+        select: {
+          id: true,
+          workDate: true,
+        },
+        orderBy: { workDate: "asc" },
+      });
+
+      const dayIds = matchingDays.map((d) => d.id);
+      const entriesCount =
+        dayIds.length > 0
+          ? await prisma.mdOutputEntry.count({
+              where: { workDayId: { in: dayIds } },
+            })
+          : 0;
+
+      const overridesCount =
+        dayIds.length > 0
+          ? await prisma.targetOverride.count({
+              where: { outputEntry: { workDayId: { in: dayIds } } },
+            })
+          : 0;
+
+      return NextResponse.json({
+        preview: {
+          workDaysCount: matchingDays.length,
+          entriesCount,
+          overridesCount,
+          earliestDate: matchingDays[0]?.workDate || null,
+          latestDate: matchingDays[matchingDays.length - 1]?.workDate || null,
+        },
+      });
+    }
+
     return NextResponse.json({ error: "Invalid type" }, { status: 400 });
   } catch (error) {
     console.error("GET /api/admin error:", error);
@@ -192,6 +246,89 @@ export async function POST(request: NextRequest) {
 
         return NextResponse.json({ success: true, workDay });
       }
+    }
+
+    // ─── Data Retention & Storage Purge Action ───────────────────────
+    if (body.action === "PURGE_DATE_RANGE") {
+      const { startDate, endDate, confirmation } = body;
+
+      if (!startDate || !endDate) {
+        return NextResponse.json(
+          { error: "Start date and End date are required" },
+          { status: 400 }
+        );
+      }
+
+      if (confirmation !== "DELETE") {
+        return NextResponse.json(
+          { error: "Confirmation text 'DELETE' is required to proceed" },
+          { status: 400 }
+        );
+      }
+
+      const start = new Date(startDate + "T00:00:00.000Z");
+      const end = new Date(endDate + "T23:59:59.999Z");
+
+      if (start > end) {
+        return NextResponse.json(
+          { error: "Start date cannot be after End date" },
+          { status: 400 }
+        );
+      }
+
+      // Count records before deletion
+      const matchingDays = await prisma.workDay.findMany({
+        where: {
+          workDate: {
+            gte: start,
+            lte: end,
+          },
+        },
+        select: { id: true },
+      });
+
+      const dayIds = matchingDays.map((d) => d.id);
+      const entriesCount =
+        dayIds.length > 0
+          ? await prisma.mdOutputEntry.count({
+              where: { workDayId: { in: dayIds } },
+            })
+          : 0;
+
+      // Delete the work days in the range (Cascade deletes md_output_entries and target_overrides)
+      const deleteResult = await prisma.workDay.deleteMany({
+        where: {
+          workDate: {
+            gte: start,
+            lte: end,
+          },
+        },
+      });
+
+      // Log to Audit Log
+      await prisma.auditLog.create({
+        data: {
+          userId: session.user.id,
+          action: "PURGE_DATE_RANGE",
+          entityType: "WorkDay",
+          entityId: `RANGE_${startDate}_TO_${endDate}`,
+          detailsJson: {
+            startDate,
+            endDate,
+            deletedDays: deleteResult.count,
+            deletedEntries: entriesCount,
+            purgedBy: session.user.name || session.user.username,
+            purgedAt: new Date().toISOString(),
+          },
+        },
+      });
+
+      return NextResponse.json({
+        success: true,
+        deletedDays: deleteResult.count,
+        deletedEntries: entriesCount,
+        message: `Successfully purged ${deleteResult.count} work day(s) and freed ~${entriesCount} production entries between ${startDate} and ${endDate}.`,
+      });
     }
 
     const { name, username, password, role } = body;

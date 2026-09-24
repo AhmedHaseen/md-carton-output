@@ -19,10 +19,11 @@ async function initDatabase() {
     console.log('📦 Step 1: Creating Enums and Types...');
 
     const enums = [
-      `DO $$ BEGIN CREATE TYPE "Role" AS ENUM ('OPERATOR', 'SUPERVISOR', 'MANAGER', 'ADMIN'); EXCEPTION WHEN duplicate_object THEN null; END $$;`,
+      `DO $$ BEGIN CREATE TYPE "Role" AS ENUM ('OPERATOR', 'MANAGER', 'ADMIN'); EXCEPTION WHEN duplicate_object THEN null; END $$;`,
       `DO $$ BEGIN CREATE TYPE "DayStatus" AS ENUM ('OPEN', 'CLOSED'); EXCEPTION WHEN duplicate_object THEN null; END $$;`,
       `DO $$ BEGIN CREATE TYPE "Shift" AS ENUM ('MORNING', 'EVENING'); EXCEPTION WHEN duplicate_object THEN null; END $$;`,
       `DO $$ BEGIN CREATE TYPE "TargetSource" AS ENUM ('DEFAULT', 'OVERRIDE'); EXCEPTION WHEN duplicate_object THEN null; END $$;`,
+      `DO $$ BEGIN CREATE TYPE "CustomerType" AS ENUM ('PVH', 'OTHER'); EXCEPTION WHEN duplicate_object THEN null; END $$;`,
     ];
 
     for (const sql of enums) {
@@ -74,6 +75,8 @@ async function initDatabase() {
         "id" TEXT NOT NULL,
         "work_day_id" TEXT NOT NULL,
         "time_slot_id" TEXT NOT NULL,
+        "md_line" INTEGER NOT NULL DEFAULT 1,
+        "customer_type" "CustomerType" NOT NULL DEFAULT 'PVH',
         "actual_cartons" INTEGER,
         "target_cartons" INTEGER NOT NULL,
         "target_source" "TargetSource" NOT NULL DEFAULT 'DEFAULT',
@@ -82,6 +85,15 @@ async function initDatabase() {
         "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
         CONSTRAINT "md_output_entries_pkey" PRIMARY KEY ("id")
       );
+    `);
+
+    // Add md_line, customer_type, and created_lines columns if they don't exist (for existing databases)
+    await prisma.$executeRawUnsafe(`
+      DO $$ BEGIN
+        ALTER TABLE "md_output_entries" ADD COLUMN IF NOT EXISTS "md_line" INTEGER NOT NULL DEFAULT 1;
+        ALTER TABLE "md_output_entries" ADD COLUMN IF NOT EXISTS "customer_type" "CustomerType" NOT NULL DEFAULT 'PVH';
+        ALTER TABLE "work_days" ADD COLUMN IF NOT EXISTS "created_lines" INTEGER[] DEFAULT '{}';
+      END $$;
     `);
 
     await prisma.$executeRawUnsafe(`
@@ -125,7 +137,9 @@ async function initDatabase() {
     await prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "users_username_key" ON "users"("username");`);
     await prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "work_days_work_date_key" ON "work_days"("work_date");`);
     await prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "md_time_slots_sequence_no_key" ON "md_time_slots"("sequence_no");`);
-    await prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "md_output_entries_work_day_id_time_slot_id_key" ON "md_output_entries"("work_day_id", "time_slot_id");`);
+    // Drop old 2-column unique index if it exists, replace with 3-column index including md_line
+    await prisma.$executeRawUnsafe(`DROP INDEX IF EXISTS "md_output_entries_work_day_id_time_slot_id_key";`);
+    await prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "md_output_entries_work_day_id_time_slot_id_md_line_key" ON "md_output_entries"("work_day_id", "time_slot_id", "md_line");`);
 
     // Foreign keys (safely added if not present)
     await prisma.$executeRawUnsafe(`

@@ -32,6 +32,7 @@ export const viewport: Viewport = {
 };
 
 import Providers from "@/components/providers";
+import MainLayout from "@/components/main-layout";
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -42,11 +43,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="min-h-full flex flex-col lg:flex-row bg-slate-50 text-slate-900 overflow-x-hidden">
         <Providers>
           <Navigation />
-          <main className="flex-1 lg:ml-64 min-h-screen flex flex-col w-full min-w-0 overflow-x-hidden">
-            <div className="px-3.5 py-4 sm:p-6 lg:p-8 max-w-[1400px] w-full mx-auto page-enter flex-1 min-w-0">
-              {children}
-            </div>
-          </main>
+          <MainLayout>{children}</MainLayout>
           <Toaster
             position="top-center"
             toastOptions={{

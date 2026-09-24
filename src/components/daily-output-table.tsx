@@ -14,10 +14,12 @@ import {
   Users,
   Settings,
   Lock,
+  CheckCircle2,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { formatTimeRange } from "@/lib/calculations";
 import type { SlotWithCalculations } from "@/lib/calculations";
+import type { CustomerTypeKey, CustomerTargetConfig } from "@/lib/target-config";
 
 interface DailyOutputTableProps {
   entries: SlotWithCalculations[];
@@ -33,6 +35,11 @@ interface DailyOutputTableProps {
   userRole?: string;
   showOverrideBadge?: boolean;
   enforce30MinLock?: boolean;
+  mdLine?: number;
+  customerType?: CustomerTypeKey;
+  onChangeCustomerType?: (shift: "MORNING" | "EVENING", type: CustomerTypeKey) => Promise<void>;
+  customerTargets?: CustomerTargetConfig | null;
+  onSlotCustomerChange?: (entryId: string, customerType: CustomerTypeKey) => Promise<void>;
 }
 
 function getStatusBadge(status: SlotWithCalculations["status"]) {
@@ -114,6 +121,11 @@ export default function DailyOutputTable({
   userRole,
   showOverrideBadge = true,
   enforce30MinLock = true,
+  mdLine,
+  customerType,
+  onChangeCustomerType,
+  customerTargets,
+  onSlotCustomerChange,
 }: DailyOutputTableProps) {
   const isAdminOrManager = userRole === "ADMIN" || userRole === "MANAGER";
 
@@ -121,6 +133,25 @@ export default function DailyOutputTable({
   const [editValue, setEditValue] = useState<string>("");
   const [saving, setSaving] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [changingSlotCustomer, setChangingSlotCustomer] = useState<string | null>(null);
+
+  const pvRate = customerTargets?.PVH?.normal ?? 60;
+  const otherRate = customerTargets?.OTHER?.normal ?? 40;
+
+  const handleSlotCustomerChange = async (
+    entry: SlotWithCalculations,
+    newType: CustomerTypeKey
+  ) => {
+    if (entry.customerType === newType) return;
+    if (!onSlotCustomerChange) return;
+
+    setChangingSlotCustomer(entry.id);
+    try {
+      await onSlotCustomerChange(entry.id, newType);
+    } finally {
+      setChangingSlotCustomer(null);
+    }
+  };
 
   // Live clock tracker to update countdowns smoothly in real time
   const [now, setNow] = useState<Date>(() => new Date());
@@ -409,16 +440,93 @@ export default function DailyOutputTable({
           </div>
         </div>
 
-        {/* Subtotal metrics badge */}
-        <div className="flex items-center justify-between sm:justify-start gap-2 px-3.5 py-1.5 rounded-xl bg-white/90 border border-slate-200/90 shadow-xs text-xs font-semibold w-full sm:w-auto">
-          <div className="flex items-center gap-1.5">
-            <span className="text-slate-500">Total Cartons:</span>
-            <span className="text-slate-800 font-bold text-sm">{shiftActual}</span>
-          </div>
-          <span className="text-slate-300">/</span>
-          <div className="flex items-center gap-1.5">
-            <span className="text-slate-500">Target:</span>
-            <span className="text-slate-700">{shiftTarget}</span>
+        {/* Right side: Subtotal metrics badge AND Customer Type Switcher inside Shift */}
+        <div className="flex flex-wrap items-center gap-2.5">
+          {/* Customer Type inside Shift Header */}
+          {customerType && (() => {
+            const hasPVH = shiftEntries.some((e) => e.customerType === "PVH");
+            const hasOTHER = shiftEntries.some((e) => e.customerType === "OTHER");
+            const isMixed = hasPVH && hasOTHER;
+            const unenteredCount = shiftEntries.filter((e) => e.actualCartons === null).length;
+            const allCompleted = shiftEntries.length > 0 && unenteredCount === 0;
+
+            return (
+              <div className="flex items-center gap-1.5">
+                {isMixed && (
+                  <span
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-black bg-amber-100/90 text-amber-900 border border-amber-300 shadow-2xs"
+                    title="This shift contains entries for multiple customer types"
+                  >
+                    Mixed Shift
+                  </span>
+                )}
+                {allCompleted && !isAdminOrManager ? (
+                  // Locked indicator ONLY when all slots in the shift are completely filled
+                  <div
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border shadow-xs ${
+                      customerType === "PVH"
+                        ? "bg-blue-50 text-blue-800 border-blue-200"
+                        : "bg-violet-50 text-violet-800 border-violet-200"
+                    }`}
+                    title="All time slots completed for this shift"
+                  >
+                    <CheckCircle2 size={12} className="text-emerald-600" />
+                    <span>{isMixed ? "Mixed Completed" : customerType === "PVH" ? `PV (${pvRate}/h)` : `Other (${otherRate}/h)`}</span>
+                  </div>
+                ) : (
+                  // Active Switcher — clickable before, during, and after partial entries
+                  <div className="inline-flex bg-slate-100 p-0.5 rounded-xl border border-slate-200 shadow-xs">
+                    <button
+                      type="button"
+                      onClick={() => onChangeCustomerType && onChangeCustomerType(shift, "PVH")}
+                      disabled={!canEdit || !isOpen}
+                      className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1 ${
+                        customerType === "PVH"
+                          ? "bg-blue-100 text-blue-900 border border-blue-300 shadow-xs ring-1 ring-blue-500/25 font-black"
+                          : "text-slate-600 hover:text-slate-900"
+                      } ${(!canEdit || !isOpen) ? "opacity-60 cursor-not-allowed" : ""}`}
+                      title={
+                        completedEntries.length > 0
+                          ? `Switch remaining ${unenteredCount} unentered slots to PV (${pvRate} ctns/hr). Already entered slots will remain unchanged.`
+                          : `Switch ${shift === "MORNING" ? "Morning" : "Evening"} to PV (${pvRate} ctns/hr)`
+                      }
+                    >
+                      <span>PV ({pvRate})</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onChangeCustomerType && onChangeCustomerType(shift, "OTHER")}
+                      disabled={!canEdit || !isOpen}
+                      className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1 ${
+                        customerType === "OTHER"
+                          ? "bg-violet-100 text-violet-900 border border-violet-300 shadow-xs ring-1 ring-violet-500/25 font-black"
+                          : "text-slate-600 hover:text-slate-900"
+                      } ${(!canEdit || !isOpen) ? "opacity-60 cursor-not-allowed" : ""}`}
+                      title={
+                        completedEntries.length > 0
+                          ? `Switch remaining ${unenteredCount} unentered slots to Other Customers (${otherRate} ctns/hr). Already entered slots will remain unchanged.`
+                          : `Switch ${shift === "MORNING" ? "Morning" : "Evening"} to Other Customers (${otherRate} ctns/hr)`
+                      }
+                    >
+                      <span>Other ({otherRate})</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
+          {/* Subtotal metrics badge */}
+          <div className="flex items-center justify-between sm:justify-start gap-2 px-3.5 py-1.5 rounded-xl bg-white/90 border border-slate-200/90 shadow-xs text-xs font-semibold w-full sm:w-auto">
+            <div className="flex items-center gap-1.5">
+              <span className="text-slate-500">Total Cartons:</span>
+              <span className="text-slate-800 font-bold text-sm">{shiftActual}</span>
+            </div>
+            <span className="text-slate-300">/</span>
+            <div className="flex items-center gap-1.5">
+              <span className="text-slate-500">Target:</span>
+              <span className="text-slate-700">{shiftTarget}</span>
+            </div>
           </div>
         </div>
       </div>
@@ -545,7 +653,7 @@ export default function DailyOutputTable({
               }`}
             >
               {/* Card Header: Slot Sequence, Time & Status */}
-              <div className="flex items-center justify-between gap-2 mb-2 pb-2 border-b border-slate-100">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-2 pb-2 border-b border-slate-100">
                 <div className="flex items-center gap-2">
                   <span className="w-5 h-5 rounded-md bg-slate-100 text-slate-600 font-mono text-xs flex items-center justify-center font-bold">
                     {entry.sequenceNo}
@@ -554,7 +662,75 @@ export default function DailyOutputTable({
                     {formatTimeRange(entry.startTime, entry.endTime)}
                   </span>
                 </div>
-                <div>{getStatusBadge(entry.status)}</div>
+                {/* Hourly Customer Selector */}
+                <div>
+                  {(() => {
+                    const slotCustomer: CustomerTypeKey = entry.customerType || customerType || "PVH";
+                    const isSlotLocked =
+                      (entry.actualCartons !== null && entry.actualCartons !== undefined) ||
+                      (lockInfo.isLocked && !isAdminOrManager);
+                    const isChanging = changingSlotCustomer === entry.id;
+
+                    if (isSlotLocked || !canEdit || !isOpen) {
+                      return (
+                        <span
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-bold border select-none ${
+                            slotCustomer === "PVH"
+                              ? "bg-blue-50 text-blue-800 border-blue-200"
+                              : "bg-violet-50 text-violet-800 border-violet-200"
+                          }`}
+                          title="Customer locked for this hour slot"
+                        >
+                          <Lock size={10} className={slotCustomer === "PVH" ? "text-blue-600" : "text-violet-600"} />
+                          <span>{slotCustomer === "PVH" ? `PV (${pvRate}/h)` : `Other (${otherRate}/h)`}</span>
+                        </span>
+                      );
+                    }
+
+                    return (
+                      <div className="inline-flex p-0.5 rounded-lg bg-slate-100 border border-slate-200">
+                        <button
+                          type="button"
+                          disabled={isChanging}
+                          onClick={() => handleSlotCustomerChange(entry, "PVH")}
+                          className={`px-2 py-0.5 text-xs font-bold rounded-md transition-all cursor-pointer flex items-center gap-1 ${
+                            slotCustomer === "PVH"
+                              ? "bg-blue-600 text-white shadow-xs font-black ring-1 ring-blue-700/20"
+                              : "text-slate-600 hover:text-blue-700 hover:bg-white"
+                          }`}
+                          title={`Set slot to PV Products (${pvRate} ctns/hr)`}
+                        >
+                          {isChanging && slotCustomer !== "PVH" && (
+                            <div className="w-2.5 h-2.5 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
+                          )}
+                          <span>PV</span>
+                          <span className={slotCustomer === "PVH" ? "text-blue-200 text-[10px]" : "text-slate-400 text-[10px]"}>
+                            ({pvRate})
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isChanging}
+                          onClick={() => handleSlotCustomerChange(entry, "OTHER")}
+                          className={`px-2 py-0.5 text-xs font-bold rounded-md transition-all cursor-pointer flex items-center gap-1 ${
+                            slotCustomer === "OTHER"
+                              ? "bg-violet-600 text-white shadow-xs font-black ring-1 ring-violet-700/20"
+                              : "text-slate-600 hover:text-violet-700 hover:bg-white"
+                          }`}
+                          title={`Set slot to Other Customers (${otherRate} ctns/hr)`}
+                        >
+                          {isChanging && slotCustomer !== "OTHER" && (
+                            <div className="w-2.5 h-2.5 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
+                          )}
+                          <span>Other</span>
+                          <span className={slotCustomer === "OTHER" ? "text-violet-200 text-[10px]" : "text-slate-400 text-[10px]"}>
+                            ({otherRate})
+                          </span>
+                        </button>
+                      </div>
+                    );
+                  })()}
+                </div>
               </div>
 
               {/* Break Alert if any */}
@@ -769,17 +945,17 @@ export default function DailyOutputTable({
 
       {/* ─── DESKTOP/TABLET DATA TABLE (>= 640px) ────────────────────── */}
       <div className="hidden sm:block overflow-x-auto touch-scroll">
-        <table className="data-table">
+        <table className="data-table min-w-[620px]">
           <thead>
             <tr>
-              <th className="w-52">Time Slot</th>
+              <th className="w-48">Time Slot</th>
+              <th className="w-44 text-center">Customer</th>
               <th className="w-24 text-center">Target</th>
               <th className="w-44 text-center">Actual Count</th>
-              <th className="w-24 text-center">Variance</th>
+              <th className="w-24 text-center">{mdLine ? `MD Line-${mdLine} Variance` : "Variance"}</th>
               <th className="w-28 text-center" title="Cumulative for this shift">
-                Shift Cum.
+                {mdLine ? `MD Line-${mdLine} Cumulative` : "Shift Cum."}
               </th>
-              <th className="w-32 text-center">Status</th>
             </tr>
           </thead>
           <tbody>
@@ -819,6 +995,79 @@ export default function DailyOutputTable({
                         </span>
                       )}
                     </div>
+                  </td>
+
+                  {/* Customer Type Column (Hourly) */}
+                  <td className="text-center">
+                    {(() => {
+                      const slotCustomer: CustomerTypeKey = entry.customerType || customerType || "PVH";
+                      const isSlotLocked =
+                        (entry.actualCartons !== null && entry.actualCartons !== undefined) ||
+                        (lockInfo.isLocked && !isAdminOrManager);
+                      const isChanging = changingSlotCustomer === entry.id;
+
+                      if (isSlotLocked || !canEdit || !isOpen) {
+                        return (
+                          <div
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-bold border select-none ${
+                              slotCustomer === "PVH"
+                                ? "bg-blue-50 text-blue-800 border-blue-200"
+                                : "bg-violet-50 text-violet-800 border-violet-200"
+                            }`}
+                            title="Customer locked for this hour period"
+                          >
+                            <Lock size={12} className={slotCustomer === "PVH" ? "text-blue-600" : "text-violet-600"} />
+                            <span>{slotCustomer === "PVH" ? `PV (${pvRate}/h)` : `Other (${otherRate}/h)`}</span>
+                            <span className="text-[10px] font-semibold bg-white/90 text-slate-500 px-1 py-0.2 rounded border border-slate-200">
+                              Locked
+                            </span>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div className="inline-flex items-center p-0.5 rounded-xl bg-slate-100 border border-slate-200 shadow-2xs">
+                          <button
+                            type="button"
+                            disabled={isChanging}
+                            onClick={() => handleSlotCustomerChange(entry, "PVH")}
+                            className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                              slotCustomer === "PVH"
+                                ? "bg-blue-600 text-white shadow-xs font-black ring-1 ring-blue-700/20"
+                                : "text-slate-600 hover:text-blue-700 hover:bg-white"
+                            }`}
+                            title={`Set this hour to PV Products (${pvRate} ctns/hr)`}
+                          >
+                            {isChanging && slotCustomer !== "PVH" && (
+                              <div className="w-2.5 h-2.5 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
+                            )}
+                            <span>PV</span>
+                            <span className={slotCustomer === "PVH" ? "text-blue-200 text-[10px]" : "text-slate-400 text-[10px]"}>
+                              ({pvRate})
+                            </span>
+                          </button>
+                          <button
+                            type="button"
+                            disabled={isChanging}
+                            onClick={() => handleSlotCustomerChange(entry, "OTHER")}
+                            className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                              slotCustomer === "OTHER"
+                                ? "bg-violet-600 text-white shadow-xs font-black ring-1 ring-violet-700/20"
+                                : "text-slate-600 hover:text-violet-700 hover:bg-white"
+                            }`}
+                            title={`Set this hour to Other Customers (${otherRate} ctns/hr)`}
+                          >
+                            {isChanging && slotCustomer !== "OTHER" && (
+                              <div className="w-2.5 h-2.5 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
+                            )}
+                            <span>Other</span>
+                            <span className={slotCustomer === "OTHER" ? "text-violet-200 text-[10px]" : "text-slate-400 text-[10px]"}>
+                              ({otherRate})
+                            </span>
+                          </button>
+                        </div>
+                      );
+                    })()}
                   </td>
 
                   {/* Target */}
@@ -1016,9 +1265,6 @@ export default function DailyOutputTable({
                       {entry.cumulativeActual ?? "—"}
                     </span>
                   </td>
-
-                  {/* Status */}
-                  <td className="text-center">{getStatusBadge(entry.status)}</td>
                 </tr>
               );
             })}

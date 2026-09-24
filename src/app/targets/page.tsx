@@ -1,84 +1,60 @@
 "use client";
 
 import { useState, useEffect, useCallback, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
-import { format } from "date-fns";
+import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import { useSession } from "next-auth/react";
-import { useRouter } from "next/navigation";
-import { Target, RotateCcw, History, AlertTriangle, Clock, Edit2, ShieldAlert, Sliders, Lock } from "lucide-react";
-import DatePicker from "@/components/date-picker";
-import { formatTimeRange } from "@/lib/calculations";
+import {
+  Target,
+  Sliders,
+  Lock,
+  Users,
+  Save,
+  RotateCcw,
+  Info,
+  Sparkles,
+  Layers,
+} from "lucide-react";
+import {
+  CustomerTypeKey,
+  MD_LINES,
+  CustomerTargetConfig,
+  LineCustomerTargetConfig,
+  DEFAULT_CUSTOMER_TARGETS,
+} from "@/lib/target-config";
 
-interface TimeSlot {
-  id: string;
-  shift: string;
-  startTime: string;
-  endTime: string;
-  sequenceNo: number;
-  defaultTarget: number;
-}
-
-interface EntryWithOverrides {
-  id: string;
-  targetCartons: number;
-  targetSource: string;
-  actualCartons: number | null;
-  timeSlot: TimeSlot;
-  overrides: Array<{
-    id: string;
-    oldTarget: number;
-    newTarget: number;
-    reason: string;
-    changedBy: string;
-    changedAt: string;
-  }>;
-}
+type ScopeType = "ALL" | 1 | 2 | 3;
 
 function TargetSettingsContent() {
   const { data: session, status } = useSession();
   const router = useRouter();
-  const searchParams = useSearchParams();
 
-  const [selectedDate, setSelectedDate] = useState(() => {
-    const urlDate = searchParams.get("date");
-    if (urlDate && /^\d{4}-\d{2}-\d{2}$/.test(urlDate)) {
-      return urlDate;
-    }
-    if (typeof window !== "undefined") {
-      const stored = localStorage.getItem("md_carton_selected_date");
-      if (stored && /^\d{4}-\d{2}-\d{2}$/.test(stored)) {
-        return stored;
-      }
-    }
-    return format(new Date(), "yyyy-MM-dd");
+  // Settings: Badge Display & 30-min lock
+  const [showOverrideBadge, setShowOverrideBadge] = useState<boolean>(true);
+  const [enforce30MinLock, setEnforce30MinLock] = useState<boolean>(true);
+  const [updatingSetting, setUpdatingSetting] = useState<boolean>(false);
+  const [updatingLockSetting, setUpdatingLockSetting] = useState<boolean>(false);
+
+  // Global customer targets (PVH & OTHER)
+  const [globalTargets, setGlobalTargets] = useState<CustomerTargetConfig>({
+    ...DEFAULT_CUSTOMER_TARGETS,
   });
 
-  useEffect(() => {
-    const urlDate = searchParams.get("date");
-    if (urlDate && /^\d{4}-\d{2}-\d{2}$/.test(urlDate) && urlDate !== selectedDate) {
-      setSelectedDate(urlDate);
-      if (typeof window !== "undefined") {
-        localStorage.setItem("md_carton_selected_date", urlDate);
-        window.dispatchEvent(new CustomEvent("md_carton_date_change"));
-      }
-    }
-  }, [searchParams, selectedDate]);
+  // Optional line-specific customer target overrides: { "1": { PVH: {...}, OTHER: {...} }, ... }
+  const [lineOverrides, setLineOverrides] = useState<LineCustomerTargetConfig>({
+    "1": {},
+    "2": {},
+    "3": {},
+  });
 
-  const handleDateChange = (newDate: string) => {
-    setSelectedDate(newDate);
-    if (typeof window !== "undefined") {
-      localStorage.setItem("md_carton_selected_date", newDate);
-      window.dispatchEvent(new CustomEvent("md_carton_date_change"));
-    }
-    window.history.replaceState(null, "", `?date=${newDate}`);
-  };
+  // Selected Scope tab: "ALL" | 1 | 2 | 3
+  const [selectedScope, setSelectedScope] = useState<ScopeType>("ALL");
 
-  const [defaultSlots, setDefaultSlots] = useState<TimeSlot[]>([]);
-  const [entries, setEntries] = useState<EntryWithOverrides[]>([]);
-  const [hasWorkDay, setHasWorkDay] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [applyToOpenDays, setApplyToOpenDays] = useState<boolean>(true);
+  const [saving, setSaving] = useState<boolean>(false);
+  const [loading, setLoading] = useState<boolean>(true);
 
+  // Check auth
   useEffect(() => {
     if (status === "authenticated") {
       const role = session?.user?.role;
@@ -89,41 +65,11 @@ function TargetSettingsContent() {
     }
   }, [session, status, router]);
 
-  // Override form state
-  const [overridingId, setOverridingId] = useState<string | null>(null);
-  const [newTarget, setNewTarget] = useState("");
-  const [reason, setReason] = useState("");
-  const [saving, setSaving] = useState(false);
-
-  // Target Override Badge display setting
-  const [showOverrideBadge, setShowOverrideBadge] = useState<boolean>(true);
-  const [enforce30MinLock, setEnforce30MinLock] = useState<boolean>(true);
-  const [updatingSetting, setUpdatingSetting] = useState<boolean>(false);
-  const [updatingLockSetting, setUpdatingLockSetting] = useState<boolean>(false);
-
-  // Fetch default slots
-  useEffect(() => {
-    fetch("/api/targets")
-      .then((res) => res.json())
-      .then((data) => {
-        setDefaultSlots(data.timeSlots || []);
-        if (data?.settings) {
-          if (typeof data.settings.showOverrideBadge === "boolean") {
-            setShowOverrideBadge(data.settings.showOverrideBadge);
-          }
-          if (typeof data.settings.enforce30MinLock === "boolean") {
-            setEnforce30MinLock(data.settings.enforce30MinLock);
-          }
-        }
-      })
-      .catch(() => toast.error("Failed to load time slots"));
-  }, []);
-
-  // Fetch date-specific overrides
-  const fetchDateData = useCallback(async (date: string) => {
+  // Load existing configurations from system settings
+  const fetchSettings = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/targets?date=${date}`);
+      const res = await fetch("/api/targets");
       const data = await res.json();
 
       if (data?.settings) {
@@ -135,20 +81,50 @@ function TargetSettingsContent() {
         }
       }
 
-      if (data.error || !data.workDay) {
-        setHasWorkDay(false);
-        setEntries([]);
-      } else {
-        setHasWorkDay(true);
-        setEntries(data.workDay.entries || []);
+      if (data?.customerTargets) {
+        setGlobalTargets(data.customerTargets);
+      } else if (data?.lineTargetConfigs) {
+        setGlobalTargets({
+          PVH: {
+            normal: data.lineTargetConfigs["1"]?.normal ?? 60,
+            breakfast: data.lineTargetConfigs["1"]?.breakfast ?? 40,
+            tea: data.lineTargetConfigs["1"]?.tea ?? 45,
+          },
+          OTHER: {
+            normal: data.lineTargetConfigs["3"]?.normal ?? 40,
+            breakfast: data.lineTargetConfigs["3"]?.breakfast ?? 24,
+            tea: data.lineTargetConfigs["3"]?.tea ?? 32,
+          },
+        });
+      }
+
+      if (data?.lineCustomerTargets && typeof data.lineCustomerTargets === "object") {
+        const sanitized: LineCustomerTargetConfig = {};
+        for (const [lineKey, lineVal] of Object.entries(data.lineCustomerTargets)) {
+          if (lineVal && typeof lineVal === "object") {
+            const typedVal = lineVal as any;
+            if (typedVal.PVH || typedVal.OTHER) {
+              sanitized[lineKey] = {
+                PVH: typedVal.PVH,
+                OTHER: typedVal.OTHER,
+              };
+            }
+          }
+        }
+        setLineOverrides(sanitized);
       }
     } catch {
-      toast.error("Failed to load data");
+      toast.error("Failed to load customer target settings");
     } finally {
       setLoading(false);
     }
   }, []);
 
+  useEffect(() => {
+    fetchSettings();
+  }, [fetchSettings]);
+
+  // Toggle Override Badge Setting
   const handleToggleOverrideBadge = async (newValue: boolean) => {
     setUpdatingSetting(true);
     try {
@@ -179,6 +155,7 @@ function TargetSettingsContent() {
     }
   };
 
+  // Toggle 30-Min Lock Setting
   const handleToggleLockSetting = async (newValue: boolean) => {
     setUpdatingLockSetting(true);
     try {
@@ -209,417 +186,645 @@ function TargetSettingsContent() {
     }
   };
 
-  useEffect(() => {
-    fetchDateData(selectedDate);
-  }, [selectedDate, fetchDateData]);
-
-  const handleOverride = async () => {
-    if (!overridingId || !newTarget || !reason.trim()) {
-      toast.error("Target value and reason are required");
-      return;
+  // Helper to read the target for a customer type in the current selected scope
+  const getCustomerTarget = (customer: CustomerTypeKey) => {
+    if (selectedScope === "ALL") {
+      return globalTargets[customer] || DEFAULT_CUSTOMER_TARGETS[customer];
     }
+    const lineStr = String(selectedScope);
+    const lineOverride = lineOverrides[lineStr]?.[customer];
+    return lineOverride || globalTargets[customer] || DEFAULT_CUSTOMER_TARGETS[customer];
+  };
 
+  const isScopeOverridden = (customer: CustomerTypeKey) => {
+    if (selectedScope === "ALL") return false;
+    const lineStr = String(selectedScope);
+    return Boolean(lineOverrides[lineStr]?.[customer]);
+  };
+
+  // Edit specific target value for a customer type in the current scope
+  const handleTargetChange = (
+    customer: CustomerTypeKey,
+    field: "normal" | "breakfast" | "tea",
+    value: string
+  ) => {
+    const num = Math.max(0, parseInt(value, 10) || 0);
+
+    if (selectedScope === "ALL") {
+      setGlobalTargets((prev) => {
+        const current = prev[customer] || DEFAULT_CUSTOMER_TARGETS[customer];
+        const updated = { ...current, [field]: num };
+
+        // Proportional break calculation if normal production hour changed
+        if (field === "normal" && num > 0) {
+          if (customer === "PVH") {
+            updated.breakfast = Math.round(num * (40 / 60));
+            updated.tea = Math.round(num * (45 / 60));
+          } else {
+            updated.breakfast = Math.round(num * (24 / 40));
+            updated.tea = Math.round(num * (32 / 40));
+          }
+        }
+
+        return { ...prev, [customer]: updated };
+      });
+    } else {
+      const lineStr = String(selectedScope);
+      setLineOverrides((prev) => {
+        const current =
+          prev[lineStr]?.[customer] ||
+          globalTargets[customer] ||
+          DEFAULT_CUSTOMER_TARGETS[customer];
+        const updated = { ...current, [field]: num };
+
+        if (field === "normal" && num > 0) {
+          if (customer === "PVH") {
+            updated.breakfast = Math.round(num * (40 / 60));
+            updated.tea = Math.round(num * (45 / 60));
+          } else {
+            updated.breakfast = Math.round(num * (24 / 40));
+            updated.tea = Math.round(num * (32 / 40));
+          }
+        }
+
+        return {
+          ...prev,
+          [lineStr]: {
+            ...prev[lineStr],
+            [customer]: updated,
+          },
+        };
+      });
+    }
+  };
+
+  // Reset target to standard baseline preset
+  const handleResetToBaseline = (customer: CustomerTypeKey) => {
+    const baseline = DEFAULT_CUSTOMER_TARGETS[customer];
+    if (selectedScope === "ALL") {
+      setGlobalTargets((prev) => ({
+        ...prev,
+        [customer]: { ...baseline },
+      }));
+      toast.success(
+        `${customer === "PVH" ? "PV Products" : "Other Customers"} reset to standard baseline`
+      );
+    } else {
+      const lineStr = String(selectedScope);
+      setLineOverrides((prev) => {
+        const lineObj = { ...(prev[lineStr] || {}) };
+        delete lineObj[customer];
+        return {
+          ...prev,
+          [lineStr]: lineObj,
+        };
+      });
+      toast.success(
+        `MD Line ${selectedScope} ${customer === "PVH" ? "PV" : "Other"} reset to standard targets`
+      );
+    }
+  };
+
+  // Save Target Settings
+  const handleSaveTargets = async () => {
     setSaving(true);
+    const loadingToast = toast.loading("Saving customer target configurations...");
+
     try {
       const res = await fetch("/api/targets", {
-        method: "PATCH",
+        method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          entryId: overridingId,
-          newTarget: Number(newTarget),
-          reason: reason.trim(),
-          changedBy: session?.user?.name || session?.user?.username || "admin",
+          action: "UPDATE_CUSTOMER_TARGETS",
+          customerTargets: globalTargets,
+          lineCustomerTargets: lineOverrides,
+          applyToOpenDays,
         }),
       });
 
-      if (!res.ok) {
-        const data = await res.json();
-        toast.error(data.error || "Failed to override");
-        return;
-      }
+      const data = await res.json();
+      toast.dismiss(loadingToast);
 
-      toast.success("Target overridden successfully");
-      setOverridingId(null);
-      setNewTarget("");
-      setReason("");
-      fetchDateData(selectedDate);
+      if (res.ok && data.success) {
+        toast.success(
+          data.message || "Customer target settings saved successfully!"
+        );
+      } else {
+        toast.error(data.error || "Failed to save target settings");
+      }
     } catch {
-      toast.error("Failed to override target");
+      toast.dismiss(loadingToast);
+      toast.error("Network error while saving target settings");
     } finally {
       setSaving(false);
     }
   };
 
-  if (status === "loading") {
-    return (
-      <div className="flex justify-center items-center py-20">
-        <div className="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin" />
-      </div>
-    );
-  }
-
-  const role = session?.user?.role;
-  if (status === "authenticated" && role !== "ADMIN" && role !== "MANAGER") {
-    return (
-      <div className="py-20 text-center">
-        <div className="w-16 h-16 bg-red-100 text-red-600 rounded-2xl flex items-center justify-center mx-auto mb-3">
-          <ShieldAlert size={32} />
-        </div>
-        <h2 className="text-xl font-bold text-slate-800">Access Restricted</h2>
-        <p className="text-sm text-slate-500 mt-1 max-w-sm mx-auto">
-          Only Admin and Manager accounts are authorized to modify targets. Redirecting...
-        </p>
-      </div>
-    );
-  }
-
   return (
-    <div className="w-full pb-10">
-      {/* Page Header */}
-      <div className="mb-6">
-        <h1 className="text-xl sm:text-2xl font-bold text-slate-800 tracking-tight">
-          Target Settings &amp; Overrides
+    <div className="space-y-6 max-w-6xl mx-auto pb-16">
+      {/* ───────────────────────────────────────────────────────────────── */}
+      {/* PAGE HEADER                                                       */}
+      {/* ───────────────────────────────────────────────────────────────── */}
+      <div>
+        <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight flex items-center gap-2.5">
+          <Target className="text-blue-600" size={28} />
+          <span>Target Settings</span>
         </h1>
-        <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-          View system baseline targets and adjust daily shift targets with audit reasons
+        <p className="text-xs sm:text-sm text-slate-500 mt-1">
+          Configure production targets for each customer type (PV Products and Other Customers)
         </p>
       </div>
 
-      {/* Target Override Badge Display Setting Card */}
-      <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/90 shadow-xs mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="flex items-start gap-3">
-          <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0 mt-0.5">
-            <Sliders size={18} />
-          </div>
-          <div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="font-bold text-slate-800 text-sm sm:text-base">
-                Daily Input &quot;Override&quot; Badge Display
-              </span>
-              <span
-                className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
-                  showOverrideBadge
-                    ? "bg-emerald-100 text-emerald-800"
-                    : "bg-slate-100 text-slate-600"
-                }`}
-              >
-                {showOverrideBadge ? "Shown on Daily Input" : "Hidden on Daily Input"}
-              </span>
+      {/* ───────────────────────────────────────────────────────────────── */}
+      {/* SYSTEM PREFERENCES (Consolidated)                                */}
+      {/* ───────────────────────────────────────────────────────────────── */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Override Badge Display Switch */}
+        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-sm p-4 sm:p-5 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+              <Sliders size={20} />
             </div>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Admin option: Remove or show the amber &quot;Override&quot; tag on the Daily Input page when targets are customized.
-            </p>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="font-bold text-slate-800 text-sm">
+                  Daily Input &quot;Override&quot; Tag
+                </h3>
+                <span
+                  className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                    showOverrideBadge
+                      ? "bg-amber-100 text-amber-800"
+                      : "bg-slate-100 text-slate-500"
+                  }`}
+                >
+                  {showOverrideBadge ? "VISIBLE" : "HIDDEN"}
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Display amber Override tag on operator input page
+              </p>
+            </div>
           </div>
-        </div>
-        <div className="flex items-center gap-3 self-end sm:self-center shrink-0">
+
           <button
             type="button"
-            onClick={() => handleToggleOverrideBadge(!showOverrideBadge)}
-            disabled={updatingSetting}
-            className={`relative inline-flex h-7 w-14 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-              showOverrideBadge ? "bg-emerald-600" : "bg-slate-300"
-            } ${updatingSetting ? "opacity-60 cursor-wait" : ""}`}
             role="switch"
             aria-checked={showOverrideBadge}
+            disabled={updatingSetting || loading}
+            onClick={() => handleToggleOverrideBadge(!showOverrideBadge)}
+            className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 ${
+              showOverrideBadge ? "bg-blue-600" : "bg-slate-200"
+            }`}
           >
             <span
-              className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
-                showOverrideBadge ? "translate-x-7" : "translate-x-0"
+              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition duration-200 ease-in-out ${
+                showOverrideBadge ? "translate-x-5" : "translate-x-0"
               }`}
             />
           </button>
-          <span className="text-xs font-bold text-slate-700 min-w-[50px]">
-            {updatingSetting ? "..." : showOverrideBadge ? "Visible" : "Hidden"}
-          </span>
         </div>
-      </div>
 
-      {/* ─── 30-Minute Lock Setting Card ──────────────────────────────── */}
-      <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/90 shadow-xs mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="flex items-start sm:items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600 shrink-0">
-            <Lock size={18} />
-          </div>
-          <div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="font-bold text-slate-800 text-sm sm:text-base">
-                30-Minute Output Entry Lock Window
-              </span>
-              <span
-                className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
-                  enforce30MinLock
-                    ? "bg-emerald-100 text-emerald-800"
-                    : "bg-slate-100 text-slate-600"
-                }`}
-              >
-                {enforce30MinLock ? "Enforced (Active)" : "Disabled (Open Access)"}
-              </span>
+        {/* 30-Min Lock Window Switch */}
+        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-sm p-4 sm:p-5 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0">
+              <Lock size={20} />
             </div>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Require carton updates to be filled within 30 minutes of slot end time. Admins and Managers retain override access.
-            </p>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="font-bold text-slate-800 text-sm">
+                  30-Min Output Entry Lock Window
+                </h3>
+                <span
+                  className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                    enforce30MinLock
+                      ? "bg-blue-100 text-blue-800"
+                      : "bg-slate-100 text-slate-500"
+                  }`}
+                >
+                  {enforce30MinLock ? "ENFORCED" : "DISABLED"}
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Lock entries after 30 mins; Admins retain full override access
+              </p>
+            </div>
           </div>
-        </div>
-        <div className="flex items-center gap-3 self-end sm:self-center shrink-0">
+
           <button
             type="button"
-            id="targets-toggle-lock-btn"
-            onClick={() => handleToggleLockSetting(!enforce30MinLock)}
-            disabled={updatingLockSetting}
-            className={`relative inline-flex h-7 w-14 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-              enforce30MinLock ? "bg-emerald-600" : "bg-slate-300"
-            } ${updatingLockSetting ? "opacity-60 cursor-wait" : ""}`}
             role="switch"
             aria-checked={enforce30MinLock}
+            disabled={updatingLockSetting || loading}
+            onClick={() => handleToggleLockSetting(!enforce30MinLock)}
+            className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 ${
+              enforce30MinLock ? "bg-blue-600" : "bg-slate-200"
+            }`}
           >
             <span
-              className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
-                enforce30MinLock ? "translate-x-7" : "translate-x-0"
+              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition duration-200 ease-in-out ${
+                enforce30MinLock ? "translate-x-5" : "translate-x-0"
               }`}
             />
           </button>
-          <span className="text-xs font-bold text-slate-700 min-w-[60px]">
-            {updatingLockSetting ? "..." : enforce30MinLock ? "Enforced" : "Disabled"}
+        </div>
+      </div>
+
+      {/* ───────────────────────────────────────────────────────────────── */}
+      {/* MAIN TARGET SETTINGS CONSOLE: By Customer Type                   */}
+      {/* ───────────────────────────────────────────────────────────────── */}
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-200/90 p-5 sm:p-7">
+        {/* Section Header */}
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-6 border-b border-slate-200 mb-6">
+          <div>
+            <h2 className="font-extrabold text-slate-900 text-lg sm:text-xl flex items-center gap-2.5">
+              <Sparkles size={22} className="text-blue-600" />
+              <span>Target Settings by Customer Type</span>
+            </h2>
+            <p className="text-xs sm:text-sm text-slate-500 mt-1">
+              Set hourly, break, and tea targets for each customer type (PV Products and Other Customers)
+            </p>
+          </div>
+
+          {/* Scope Selector Tabs */}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="inline-flex max-w-full overflow-x-auto touch-scroll p-1 bg-slate-100 rounded-xl border border-slate-200 shadow-xs">
+              <button
+                type="button"
+                onClick={() => setSelectedScope("ALL")}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shrink-0 ${
+                  selectedScope === "ALL"
+                    ? "bg-white text-blue-700 shadow-sm font-black"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                <Layers size={13} />
+                <span>All Lines (Standard)</span>
+              </button>
+
+              {MD_LINES.map((line) => {
+                const isSelected = selectedScope === line;
+                const hasCustom =
+                  Boolean(lineOverrides[String(line)]?.PVH) ||
+                  Boolean(lineOverrides[String(line)]?.OTHER);
+                return (
+                  <button
+                    key={`scope-tab-${line}`}
+                    type="button"
+                    onClick={() => setSelectedScope(line)}
+                    className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shrink-0 ${
+                      isSelected
+                        ? "bg-white text-blue-700 shadow-sm font-black"
+                        : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    <span>MD Line - {line}</span>
+                    {hasCustom && (
+                      <span className="w-1.5 h-1.5 rounded-full bg-blue-600" />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="flex items-center justify-between sm:justify-end gap-2.5 w-full sm:w-auto ml-auto">
+              <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-600 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={applyToOpenDays}
+                  onChange={(e) => setApplyToOpenDays(e.target.checked)}
+                  className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 border-slate-300"
+                />
+                <span className="hidden sm:inline">Apply to active days</span>
+              </label>
+
+              <button
+                type="button"
+                onClick={handleSaveTargets}
+                disabled={saving || loading}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 active:scale-98 text-white rounded-xl text-xs sm:text-sm font-bold shadow-md shadow-blue-600/25 transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 shrink-0"
+              >
+                {saving ? (
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <Save size={15} />
+                )}
+                <span>Save Targets</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Scope Context Banner */}
+        <div className="mb-6 p-3 bg-slate-50 border border-slate-200/80 rounded-xl flex items-center justify-between text-xs text-slate-600">
+          <div className="flex items-center gap-2">
+            <span className="font-bold text-slate-800">Editing Targets for:</span>
+            <span className="px-2 py-0.5 rounded-md bg-blue-100 text-blue-800 font-extrabold text-[11px]">
+              {selectedScope === "ALL"
+                ? "Standard (All MD Lines)"
+                : `MD Line - ${selectedScope} Specific`}
+            </span>
+          </div>
+          <span className="text-[11px] text-slate-500">
+            {selectedScope === "ALL"
+              ? "These targets apply to any MD Line running the selected customer type."
+              : `Overrides standard targets specifically for MD Line ${selectedScope}.`}
           </span>
         </div>
-      </div>
 
-      {/* ─── Baseline Default Targets Table ───────────────────────────── */}
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-200/90 mb-6 overflow-hidden">
-        <div className="px-4 sm:px-6 py-4 border-b border-slate-200/80 bg-slate-50/50">
-          <h2 className="font-bold text-slate-800 text-sm sm:text-base flex items-center gap-2">
-            <Target size={18} className="text-blue-600" />
-            Standard Baseline Targets (16 Slots)
-          </h2>
-          <p className="text-xs text-slate-500 mt-0.5">
-            120 standard cartons / hour • 80 break allowance • 90 tea break allowance
-          </p>
-        </div>
+        {/* 2 Customer Type Cards Grid: PV Products & Other Customers */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* ─── CARD 1: PV Products ─────────────────────────────────── */}
+          {(() => {
+            const current = getCustomerTarget("PVH");
+            const shiftTotal = current.normal * 6 + current.breakfast + current.tea;
+            const dayTotal = shiftTotal * 2;
+            const isCustom = isScopeOverridden("PVH");
 
-        <div className="overflow-x-auto touch-scroll">
-          <table className="data-table text-xs sm:text-sm">
-            <thead>
-              <tr>
-                <th className="w-12">#</th>
-                <th>Shift</th>
-                <th>Time Slot</th>
-                <th className="text-center">Target</th>
-                <th>Remarks</th>
-              </tr>
-            </thead>
-            <tbody>
-              {defaultSlots.map((slot) => (
-                <tr key={slot.id}>
-                  <td className="text-slate-400 font-mono font-semibold">
-                    {slot.sequenceNo}
-                  </td>
-                  <td>
-                    <span
-                      className={`badge text-[10px] sm:text-xs ${
-                        slot.shift === "MORNING"
-                          ? "bg-amber-100 text-amber-800"
-                          : "bg-indigo-100 text-indigo-800"
-                      }`}
-                    >
-                      {slot.shift}
-                    </span>
-                  </td>
-                  <td className="font-semibold text-slate-800">
-                    {formatTimeRange(slot.startTime, slot.endTime)}
-                  </td>
-                  <td className="text-center">
-                    <span
-                      className={`font-black text-base ${
-                        slot.defaultTarget !== 120
-                          ? "text-amber-600"
-                          : "text-slate-700"
-                      }`}
-                    >
-                      {slot.defaultTarget}
-                    </span>
-                  </td>
-                  <td className="text-slate-500">
-                    {slot.defaultTarget === 80
-                      ? "Break Period (80 Cartons)"
-                      : slot.defaultTarget === 90
-                      ? "Tea Break Period (90 Cartons)"
-                      : "Standard Target (120 Cartons)"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+            return (
+              <div className="rounded-2xl border-2 border-blue-200/90 bg-gradient-to-b from-blue-50/40 via-white to-slate-50/30 p-5 sm:p-6 flex flex-col justify-between shadow-sm transition-all">
+                <div>
+                  {/* Card Header */}
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-xs">
+                        <Users size={20} />
+                      </div>
+                      <div>
+                        <h3 className="font-extrabold text-slate-900 text-lg">
+                          PV Products
+                        </h3>
+                        <p className="text-xs text-blue-700 font-semibold">
+                          Standard Target: 60 cartons/hour
+                        </p>
+                      </div>
+                    </div>
 
-      {/* ─── Date-Specific Overrides ───────────────────────────────────── */}
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-200/90 overflow-hidden">
-        <div className="px-4 sm:px-6 py-4 border-b border-slate-200/80 bg-slate-50/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div>
-            <h2 className="font-bold text-slate-800 text-sm sm:text-base flex items-center gap-2">
-              <History size={18} className="text-amber-600" />
-              Daily Target Overrides
-            </h2>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Modify hourly target for any slot on a specific production date
-            </p>
-          </div>
+                    <div className="flex items-center gap-2">
+                      {isCustom && (
+                        <span className="text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
+                          Custom
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleResetToBaseline("PVH")}
+                        title="Reset to baseline 60 / 40 / 45"
+                        className="text-[11px] font-bold text-slate-400 hover:text-blue-600 flex items-center gap-1 cursor-pointer transition-colors p-1"
+                      >
+                        <RotateCcw size={12} />
+                        <span>Reset</span>
+                      </button>
+                    </div>
+                  </div>
 
-          <DatePicker
-            selectedDate={selectedDate}
-            onDateChange={handleDateChange}
-            label="Select Date"
-          />
-        </div>
-
-        {loading && (
-          <div className="flex justify-center py-16">
-            <div className="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin" />
-          </div>
-        )}
-
-        {!loading && !hasWorkDay && (
-          <div className="px-6 py-12 text-center text-slate-500">
-            <AlertTriangle size={36} className="mx-auto mb-2 text-slate-300" />
-            <p className="font-semibold text-slate-700 text-sm">No working day found for this date.</p>
-            <p className="text-xs text-slate-400 mt-1">
-              Create a working day from the Daily Input page first before overriding targets.
-            </p>
-          </div>
-        )}
-
-        {!loading && hasWorkDay && (
-          <div className="overflow-x-auto touch-scroll">
-            <table className="data-table text-xs sm:text-sm">
-              <thead>
-                <tr>
-                  <th>Time Slot</th>
-                  <th className="text-center">Active Target</th>
-                  <th className="text-center">Type</th>
-                  <th>Override History &amp; Reason</th>
-                  <th className="text-center">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {entries.map((entry) => (
-                  <tr key={entry.id}>
-                    <td className="font-semibold text-slate-800">
-                      <div className="flex items-center gap-1.5">
-                        <span
-                          className={`w-2 h-2 rounded-full ${
-                            entry.timeSlot.shift === "MORNING"
-                              ? "bg-amber-400"
-                              : "bg-indigo-400"
-                          }`}
+                  {/* Editable Inputs */}
+                  <div className="p-4 rounded-xl bg-white border border-slate-200 shadow-xs mb-5 space-y-3.5">
+                    {/* Normal Hour */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-xs font-bold text-slate-700">
+                          Normal Production Hour:
+                        </label>
+                        <span className="text-[11px] text-slate-400 font-medium">Standard Slot</span>
+                      </div>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          min="1"
+                          value={current.normal}
+                          onChange={(e) => handleTargetChange("PVH", "normal", e.target.value)}
+                          className="w-full h-10 px-3.5 pr-14 bg-slate-50 border border-slate-300 rounded-lg text-base font-extrabold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
                         />
-                        <span>
-                          {formatTimeRange(
-                            entry.timeSlot.startTime,
-                            entry.timeSlot.endTime
-                          )}
+                        <span className="absolute right-3 top-2.5 text-xs font-bold text-slate-400 pointer-events-none">
+                          ctns/hr
                         </span>
                       </div>
-                    </td>
+                    </div>
 
-                    <td className="text-center">
-                      <span
-                        className={`font-black text-base ${
-                          entry.targetSource === "OVERRIDE"
-                            ? "text-amber-600"
-                            : "text-slate-800"
-                        }`}
-                      >
-                        {entry.targetCartons}
-                      </span>
-                    </td>
-
-                    <td className="text-center">
-                      {entry.targetSource === "OVERRIDE" ? (
-                        <span className="badge badge-override text-[10px]">Override</span>
-                      ) : (
-                        <span className="badge badge-pending text-[10px]">Default</span>
-                      )}
-                    </td>
-
-                    <td>
-                      {entry.overrides.length > 0 ? (
-                        <div className="space-y-1">
-                          {entry.overrides.slice(0, 2).map((o) => (
-                            <div key={o.id} className="text-xs text-slate-600">
-                              <span className="font-semibold text-slate-800">
-                                {o.oldTarget} → {o.newTarget}
-                              </span>
-                              <span className="text-slate-400 mx-1">•</span>
-                              <span className="italic text-slate-500">"{o.reason}"</span>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <span className="text-xs text-slate-400">Baseline default</span>
-                      )}
-                    </td>
-
-                    <td className="text-center">
-                      {overridingId === entry.id ? (
-                        <div className="flex flex-col gap-2 p-2 bg-amber-50/80 rounded-xl border border-amber-200 min-w-[220px]">
-                          <div className="text-left text-[11px] font-bold text-amber-900">
-                            Override Target:
-                          </div>
+                    {/* Break Slots (Breakfast / Dinner & Tea Break) */}
+                    <div className="grid grid-cols-2 gap-3 pt-1">
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-600 block mb-1">
+                          Breakfast / Dinner Hour:
+                        </label>
+                        <div className="relative">
                           <input
                             type="number"
-                            min="1"
-                            placeholder="New Target (Cartons)"
-                            value={newTarget}
-                            onChange={(e) => setNewTarget(e.target.value)}
-                            className="w-full h-9 px-3 bg-white border border-amber-300 rounded-lg text-sm font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
-                            autoFocus
+                            min="0"
+                            value={current.breakfast}
+                            onChange={(e) => handleTargetChange("PVH", "breakfast", e.target.value)}
+                            className="w-full h-9 px-3 pr-10 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
                           />
-                          <input
-                            type="text"
-                            placeholder="Reason (required)"
-                            value={reason}
-                            onChange={(e) => setReason(e.target.value)}
-                            className="w-full h-9 px-3 bg-white border border-amber-300 rounded-lg text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500"
-                          />
-                          <div className="flex gap-1.5 pt-1">
-                            <button
-                              onClick={handleOverride}
-                              disabled={saving}
-                              className="flex-1 h-8 bg-amber-600 text-white rounded-lg text-xs font-bold hover:bg-amber-700 transition-colors disabled:opacity-50"
-                            >
-                              {saving ? "Saving..." : "Confirm"}
-                            </button>
-                            <button
-                              onClick={() => {
-                                setOverridingId(null);
-                                setNewTarget("");
-                                setReason("");
-                              }}
-                              className="h-8 px-3 bg-white border border-slate-200 text-slate-700 rounded-lg text-xs font-semibold hover:bg-slate-50"
-                            >
-                              Cancel
-                            </button>
-                          </div>
+                          <span className="absolute right-2.5 top-2 text-[11px] font-bold text-slate-400 pointer-events-none">
+                            ctns
+                          </span>
                         </div>
-                      ) : (
-                        <button
-                          onClick={() => {
-                            setOverridingId(entry.id);
-                            setNewTarget(entry.targetCartons.toString());
-                          }}
-                          className="px-3 py-1.5 rounded-xl bg-amber-50 text-amber-700 hover:bg-amber-100 transition-colors text-xs font-bold inline-flex items-center gap-1 border border-amber-200/80"
-                        >
-                          <Edit2 size={12} />
-                          <span>Override</span>
-                        </button>
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-600 block mb-1">
+                          Tea Break Hour:
+                        </label>
+                        <div className="relative">
+                          <input
+                            type="number"
+                            min="0"
+                            value={current.tea}
+                            onChange={(e) => handleTargetChange("PVH", "tea", e.target.value)}
+                            className="w-full h-9 px-3 pr-10 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
+                          />
+                          <span className="absolute right-2.5 top-2 text-[11px] font-bold text-slate-400 pointer-events-none">
+                            ctns
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Card Summary: Shift & Day Totals */}
+                <div className="pt-3.5 border-t border-blue-200/70 bg-blue-50/50 -mx-5 sm:-mx-6 -mb-5 sm:-mb-6 px-5 sm:px-6 py-3.5 rounded-b-2xl">
+                  <div className="flex items-center justify-between text-xs">
+                    <div>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
+                        Shift Target (8h)
+                      </span>
+                      <span className="text-base font-black text-slate-800">
+                        {shiftTotal} <span className="text-xs font-normal text-slate-500">ctns</span>
+                      </span>
+                    </div>
+
+                    <div className="text-right">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
+                        Full Day Target (16h)
+                      </span>
+                      <span className="text-base font-black text-blue-700">
+                        {dayTotal} <span className="text-xs font-normal text-slate-500">ctns</span>
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* ─── CARD 2: Other Customers ─────────────────────────────── */}
+          {(() => {
+            const current = getCustomerTarget("OTHER");
+            const shiftTotal = current.normal * 6 + current.breakfast + current.tea;
+            const dayTotal = shiftTotal * 2;
+            const isCustom = isScopeOverridden("OTHER");
+
+            return (
+              <div className="rounded-2xl border-2 border-violet-200/90 bg-gradient-to-b from-violet-50/40 via-white to-slate-50/30 p-5 sm:p-6 flex flex-col justify-between shadow-sm transition-all">
+                <div>
+                  {/* Card Header */}
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-violet-600 text-white flex items-center justify-center shadow-xs">
+                        <Users size={20} />
+                      </div>
+                      <div>
+                        <h3 className="font-extrabold text-slate-900 text-lg">
+                          Other Customers
+                        </h3>
+                        <p className="text-xs text-violet-700 font-semibold">
+                          Standard Target: {DEFAULT_CUSTOMER_TARGETS.OTHER.normal} cartons/hour
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {isCustom && (
+                        <span className="text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
+                          Custom
+                        </span>
                       )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                      <button
+                        type="button"
+                        onClick={() => handleResetToBaseline("OTHER")}
+                        title={`Reset to baseline ${DEFAULT_CUSTOMER_TARGETS.OTHER.normal} / ${DEFAULT_CUSTOMER_TARGETS.OTHER.breakfast} / ${DEFAULT_CUSTOMER_TARGETS.OTHER.tea}`}
+                        className="text-[11px] font-bold text-slate-400 hover:text-violet-600 flex items-center gap-1 cursor-pointer transition-colors p-1"
+                      >
+                        <RotateCcw size={12} />
+                        <span>Reset</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Editable Inputs */}
+                  <div className="p-4 rounded-xl bg-white border border-slate-200 shadow-xs mb-5 space-y-3.5">
+                    {/* Normal Hour */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-xs font-bold text-slate-700">
+                          Normal Production Hour:
+                        </label>
+                        <span className="text-[11px] text-slate-400 font-medium">Standard Slot</span>
+                      </div>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          min="1"
+                          value={current.normal}
+                          onChange={(e) => handleTargetChange("OTHER", "normal", e.target.value)}
+                          className="w-full h-10 px-3.5 pr-14 bg-slate-50 border border-slate-300 rounded-lg text-base font-extrabold text-slate-900 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:bg-white"
+                        />
+                        <span className="absolute right-3 top-2.5 text-xs font-bold text-slate-400 pointer-events-none">
+                          ctns/hr
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Break Slots (Breakfast / Dinner & Tea Break) */}
+                    <div className="grid grid-cols-2 gap-3 pt-1">
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-600 block mb-1">
+                          Breakfast / Dinner Hour:
+                        </label>
+                        <div className="relative">
+                          <input
+                            type="number"
+                            min="0"
+                            value={current.breakfast}
+                            onChange={(e) => handleTargetChange("OTHER", "breakfast", e.target.value)}
+                            className="w-full h-9 px-3 pr-10 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:bg-white"
+                          />
+                          <span className="absolute right-2.5 top-2 text-[11px] font-bold text-slate-400 pointer-events-none">
+                            ctns
+                          </span>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-600 block mb-1">
+                          Tea Break Hour:
+                        </label>
+                        <div className="relative">
+                          <input
+                            type="number"
+                            min="0"
+                            value={current.tea}
+                            onChange={(e) => handleTargetChange("OTHER", "tea", e.target.value)}
+                            className="w-full h-9 px-3 pr-10 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:bg-white"
+                          />
+                          <span className="absolute right-2.5 top-2 text-[11px] font-bold text-slate-400 pointer-events-none">
+                            ctns
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Card Summary: Shift & Day Totals */}
+                <div className="pt-3.5 border-t border-violet-200/70 bg-violet-50/50 -mx-5 sm:-mx-6 -mb-5 sm:-mb-6 px-5 sm:px-6 py-3.5 rounded-b-2xl">
+                  <div className="flex items-center justify-between text-xs">
+                    <div>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
+                        Shift Target (8h)
+                      </span>
+                      <span className="text-base font-black text-slate-800">
+                        {shiftTotal} <span className="text-xs font-normal text-slate-500">ctns</span>
+                      </span>
+                    </div>
+
+                    <div className="text-right">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
+                        Full Day Target (16h)
+                      </span>
+                      <span className="text-base font-black text-violet-700">
+                        {dayTotal} <span className="text-xs font-normal text-slate-500">ctns</span>
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+        </div>
+      </div>
+
+      {/* ───────────────────────────────────────────────────────────────── */}
+      {/* Factory Standard Reference Note                                  */}
+      {/* ───────────────────────────────────────────────────────────────── */}
+      <div className="p-4 sm:p-5 rounded-2xl bg-white border border-slate-200/90 shadow-xs">
+        <div className="flex items-start gap-3 text-xs text-slate-600">
+          <Info size={16} className="text-blue-600 shrink-0 mt-0.5" />
+          <div className="space-y-1">
+            <p className="font-bold text-slate-800">Standard Customer Target Calculation Reference:</p>
+            <p className="text-slate-600 leading-relaxed">
+              • <strong className="text-blue-700">PV Products:</strong> Standard {globalTargets.PVH?.normal ?? 60} cartons/hour (Breakfast/Dinner: {globalTargets.PVH?.breakfast ?? 40} ctns, Tea: {globalTargets.PVH?.tea ?? 45} ctns) • {(globalTargets.PVH?.normal ?? 60) * 6 + (globalTargets.PVH?.breakfast ?? 40) + (globalTargets.PVH?.tea ?? 45)} ctns per shift (8h) • {((globalTargets.PVH?.normal ?? 60) * 6 + (globalTargets.PVH?.breakfast ?? 40) + (globalTargets.PVH?.tea ?? 45)) * 2} ctns per day (16h).
+            </p>
+            <p className="text-slate-600 leading-relaxed">
+              • <strong className="text-violet-700">Other Customers:</strong> Standard {globalTargets.OTHER?.normal ?? 40} cartons/hour (Breakfast/Dinner: {globalTargets.OTHER?.breakfast ?? 24} ctns, Tea: {globalTargets.OTHER?.tea ?? 32} ctns) • {(globalTargets.OTHER?.normal ?? 40) * 6 + (globalTargets.OTHER?.breakfast ?? 24) + (globalTargets.OTHER?.tea ?? 32)} ctns per shift (8h) • {((globalTargets.OTHER?.normal ?? 40) * 6 + (globalTargets.OTHER?.breakfast ?? 24) + (globalTargets.OTHER?.tea ?? 32)) * 2} ctns per day (16h).
+            </p>
+            <p className="text-[11px] text-slate-400 pt-1">
+              Operators choose whether an MD Line is running PV Products or Other Customers when operating shifts on the Daily Input page. The targets above are automatically assigned to all slots based on the chosen customer type.
+            </p>
           </div>
-        )}
+        </div>
       </div>
     </div>
   );
@@ -630,7 +835,7 @@ export default function TargetSettingsPage() {
     <Suspense
       fallback={
         <div className="flex items-center justify-center py-24">
-          <div className="w-10 h-10 border-4 border-amber-200 border-t-amber-600 rounded-full animate-spin" />
+          <div className="w-10 h-10 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin" />
         </div>
       }
     >

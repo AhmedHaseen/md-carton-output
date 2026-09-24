@@ -165,7 +165,7 @@ export default function LoginPage() {
             <p className="text-xs opacity-90 leading-relaxed">
               {loginOption === "operator"
                 ? "For factory line operators entering hourly Metal Detector carton counts."
-                : "For supervisors and management overseeing targets, analysis, reports & users."}
+                : "For managers and administrators overseeing targets, analysis, reports & users."}
             </p>
           </div>
 

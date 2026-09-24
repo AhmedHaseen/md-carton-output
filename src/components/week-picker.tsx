@@ -209,7 +209,7 @@ export default function WeekPicker({
         </div>
 
         {/* Jump Directly by Calendar Date */}
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex flex-wrap sm:flex-nowrap items-center justify-between sm:justify-start gap-2 w-full lg:w-auto">
           <label
             htmlFor="week-date-jump"
             className="text-xs font-semibold text-slate-500 whitespace-nowrap shrink-0 flex items-center gap-1"
@@ -222,7 +222,7 @@ export default function WeekPicker({
             type="date"
             value={weekStart}
             onChange={(e) => handleDateJump(e.target.value)}
-            className="bg-slate-50 hover:bg-slate-100/80 border border-slate-200 text-slate-800 text-xs font-semibold rounded-xl px-2.5 py-1.5 transition-colors focus:ring-2 focus:ring-blue-500 focus:outline-none cursor-pointer"
+            className="flex-1 sm:flex-initial bg-slate-50 hover:bg-slate-100/80 border border-slate-200 text-slate-800 text-xs font-semibold rounded-xl px-2.5 py-1.5 transition-colors focus:ring-2 focus:ring-blue-500 focus:outline-none cursor-pointer"
             title="Pick any calendar date to jump to its corresponding Monday–Sunday week"
           />
         </div>
